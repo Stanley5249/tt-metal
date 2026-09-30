@@ -11,8 +11,7 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 `tracy-ttsim`, the default branch, is an upstream nightly tag, then a merge of
 every branch below, then the fork-only commits: this file, the `fork-*`
-workflows, and `.github/cliff.toml` with its script. The fork has no `main`;
-see Workflows.
+workflows, and `.github/cliff.toml`. The fork has no `main`; see Workflows.
 
 Every other branch is a change that could go upstream. Each starts from the
 same upstream tag, fits one of the PR categories that `CONTRIBUTING.md` lists,
@@ -57,15 +56,17 @@ When upstream merges a change, delete its branch and drop its row here.
 ## Workflows
 
 `fork-checks` runs `just ci` on each push to `tracy-ttsim`. `fork-release`,
-started by hand on `tracy-ttsim` with a label such as `conda.1`, builds on a
+started by hand on `tracy-ttsim` with a label `conda.N`, builds on a
 GitHub-hosted runner and drafts a release with the wheel, the Tracy tools, and
-notes that git-cliff writes from `.github/cliff.toml`.
+notes that git-cliff writes from `.github/cliff.toml`. N counts the releases on
+one upstream tag, and the workflow rejects other labels.
 
 Upstream's workflows stay in the tree, unchanged, and do not fire here:
 scheduled runs and issues are off on forks, the fork opens no pull requests,
-and their push triggers listen on `main`, which the fork does not have. Do not
-recreate `main` or open pull requests inside the fork. For the same reason,
-the fork has no Dependabot.
+and most push triggers listen on `main`, which the fork does not have. The two
+`copilot-*` workflows that fire on any push are disabled in the repository's
+Actions settings. Do not recreate `main` or open pull requests inside the
+fork. For the same reason, the fork has no Dependabot.
 
 ## Using a release
 
