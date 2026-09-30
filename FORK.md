@@ -1,6 +1,6 @@
 # Stanley5249/tt-metal
 
-This file belongs to the fork only. It lives on `docs/fork` and never goes
+This file belongs to the fork only. It lives on `tracy-ttsim` and never goes
 upstream.
 
 This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal)
@@ -9,12 +9,14 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 ## Branches
 
-Every branch starts from an upstream nightly tag, and `tracy-ttsim`, the
-default branch, merges them all. The fork has no `main`; see Workflows.
+`tracy-ttsim`, the default branch, is an upstream nightly tag, then a merge of
+every branch below, then the fork-only commits: this file, the `fork-*`
+workflows, and `.github/cliff.toml` with its script. The fork has no `main`;
+see Workflows.
 
-Each change that could go upstream sits on its own branch, in one of the
-upstream PR categories that `CONTRIBUTING.md` lists, and its commit message is
-the draft PR description.
+Every other branch is a change that could go upstream. Each starts from the
+same upstream tag, fits one of the PR categories that `CONTRIBUTING.md` lists,
+and has a commit message that drafts the PR description.
 
 | Branch                    | Change                                            | Category | Upstream     |
 | ------------------------- | ------------------------------------------------- | -------- | ------------ |
@@ -25,8 +27,6 @@ the draft PR description.
 | `feat/wheel-models`       | ship tt_transformers' `models/` in the ttnn wheel | Feature  | not proposed |
 | `feat/pixi`               | pixi workspace and conda clang toolchain          | Feature  | not proposed |
 | `feat/justfile`           | build, ttsim, and release recipes                 | Feature  | not proposed |
-| `ci/fork`                 | the fork's own workflows                          | none     | fork only    |
-| `docs/fork`               | this file                                         | none     | fork only    |
 
 `feat/wheel-models` serves vLLM on ttsim rather than Tracy, and
 `feat/justfile` builds on `feat/pixi`.
@@ -38,7 +38,9 @@ Sync on demand, when a fix or a ttsim release needs a newer upstream tag.
 1. Push the new upstream nightly tag to the fork; the release workflow reads
    it with `git describe`.
 2. Rebase each branch onto that tag.
-3. Recreate `tracy-ttsim` from that tag and merge every branch into it.
+3. Recreate `tracy-ttsim` from that tag, merge every branch into it, then
+   cherry-pick the fork-only commits: everything above the last merge on the
+   old `tracy-ttsim`.
 4. Force-push the branches. Release tags keep earlier `tracy-ttsim` commits.
 5. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
    latest releases.
