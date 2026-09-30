@@ -1,0 +1,82 @@
+# Build tt-metal with Tracy and draft a release with the ttnn wheel, the Tracy
+# tools, and notes from git-cliff. Run it on tracy-ttsim; FORK.md names the tags.
+name: fork release
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Local version label, such as conda.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      # Unity builds take a few GB per job; the runner has 16 GB.
+      TT_BUILD_JOBS: "4"
+      CCACHE_MAXSIZE: 3G
+    steps:
+      # The build tree, the CPM cache, and the pixi environment need more than
+      # the runner's free disk.
+      - uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          tool-cache: true
+
+      # Full history without blobs, so git describe finds the upstream tag;
+      # --exclude skips the fork's own release tags.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          submodules: recursive
+
+      - id: version
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*-dev[0-9]*' --exclude 'v*-*-*')
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "tag=$base-${{ inputs.label }}" >> "$GITHUB_OUTPUT"
+
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          cache: true
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.cache/cpm
+          key: build-${{ steps.version.outputs.base }}-${{ github.sha }}
+          restore-keys: |
+            build-${{ steps.version.outputs.base }}-
+            build-
+
+      - run: pixi run just build
+      - run: pixi run just wheel --label "${{ inputs.label }}"
+      - run: pixi run just tracy-tools
+
+      - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
+        with:
+          config: .github/cliff.toml
+          args: --tag ${{ steps.version.outputs.tag }} ${{ steps.version.outputs.base }}..HEAD
+        env:
+          OUTPUT: dist/release-notes.md
+          UPSTREAM_BASE: ${{ steps.version.outputs.base }}
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: dist/release-notes.md
+          draft: true
+          files: |
+            dist/ttnn-*.whl
+            dist/tracy-tools-linux_x86_64.tar.gz

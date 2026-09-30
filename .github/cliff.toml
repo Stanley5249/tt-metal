@@ -1,0 +1,30 @@
+# git-cliff notes for a fork release: the fork's own commits since the upstream
+# tag it builds on. The release workflow passes that range and sets
+# UPSTREAM_BASE.
+
+[changelog]
+header = ""
+body = """
+Built on upstream [{{ get_env(name="UPSTREAM_BASE") }}](https://github.com/tenstorrent/tt-metal/releases/tag/{{ get_env(name="UPSTREAM_BASE") }}) \
+with Tracy, for ttsim. FORK.md lists the branches in this build.
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# Merge commits that assemble tracy-ttsim are not changes.
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^build", group = "<!-- 2 -->Build" },
+  { message = "^docs", group = "<!-- 3 -->Docs" },
+  { message = "^ci", group = "<!-- 4 -->CI" },
+  { message = ".*", skip = true },
+]
