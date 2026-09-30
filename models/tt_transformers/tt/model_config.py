@@ -68,6 +68,10 @@ _REPO_ROOT = Path(
     or os.environ.get("TT_METAL_HOME")
     or str(Path(__file__).resolve().parents[3])
 )
+# tt-vllm-tracer: prefer the tree this file lives in when it carries the model
+# parameters, so a separately installed `models` package finds its own.
+if (Path(__file__).resolve().parents[3] / "models/tt_transformers/model_params").is_dir():
+    _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class TensorGroup(Enum):
