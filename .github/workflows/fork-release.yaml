@@ -74,15 +74,15 @@ jobs:
           locked: true
           cache: true
 
+      # One entry per upstream tag: a few GB each, and a per-commit key would
+      # fill the repository's 10 GB and evict the pixi cache.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/ccache
             ~/.cache/cpm
-          key: build-${{ steps.version.outputs.base }}-${{ github.sha }}
-          restore-keys: |
-            build-${{ steps.version.outputs.base }}-
-            build-
+          key: build-${{ steps.version.outputs.base }}
+          restore-keys: build-
 
       - run: pixi run just build
       - run: pixi run just wheel --label "$LABEL"
