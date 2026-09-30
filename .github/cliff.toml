@@ -17,7 +17,7 @@ body = """
 
 {#- The GitHub release title carries the version, so the body does not. -#}
 {%- set base = get_env(name="UPSTREAM_BASE") -%}
-Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/releases/tag/{{ base }}). [FORK.md]({{ self::remote_url() }}/blob/{{ version }}/FORK.md) lists the patches and how to use the wheel.
+Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/releases/tag/{{ base }}). [FORK.md]({{ self::remote_url() }}/blob/{{ version }}/FORK.md) lists the patches.
 {% for group, commits in commits | group_by(attribute="group") %}
     ## {{ group | striptags | trim }}
     {#- Unscoped commits first, then by scope; sort is stable, so each scope stays newest first. #}
