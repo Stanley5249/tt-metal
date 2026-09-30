@@ -911,6 +911,28 @@ static void ReadDeviceProfilerResultsImpl(
         }
     }
 
+    if (MetalContext::instance(context_id).rtoptions().get_simulator_enabled()) {
+        // BRISC reports a program done before its profiler flush, and ttsim only advances while the
+        // host touches the device. Poll each core that started profiling until its flush lands.
+        auto& context = MetalContext::instance(context_id);
+        for (const CoreCoord& core : virtual_cores) {
+            const HalProgrammableCoreType core_type =
+                tt::llrt::get_core_type(MetalEnvAccessor(context.get_env()).impl(), device->id(), core);
+            DeviceAddr control_vector_addr =
+                context.hal().get_dev_addr(core_type, HalL1MemAddrType::PROFILER) +
+                context.hal().get_dev_msgs_factory(core_type).offset_of<dev_msgs::profiler_msg_t>(
+                    dev_msgs::profiler_msg_t::Field::control_vector);
+            for (int i = 0; i < 1000; i++) {
+                const std::vector<std::uint32_t> control_buffer = context.get_cluster().read_core(
+                    device->id(), core, control_vector_addr, kernel_profiler::PROFILER_L1_CONTROL_BUFFER_SIZE);
+                if (control_buffer[kernel_profiler::NOC_X] == 0 ||
+                    control_buffer[kernel_profiler::PROFILER_DONE] == 1) {
+                    break;
+                }
+            }
+        }
+    }
+
     TT_FATAL(
         !MetalContext::instance().dprint_server(), "Debug print server is running, cannot read device profiler data");
 

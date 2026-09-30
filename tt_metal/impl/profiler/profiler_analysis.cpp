@@ -348,9 +348,12 @@ AnalysisResults parse_duration(
         if (result != PROGRAM_INVALID_SINGLE_ANALYSIS_RESULT) {
             TT_ASSERT(result.start_timestamp <= result.end_timestamp);
             // Quasar DM/TRISC use hardcoded clock frequencies for now
-            const int chip_frequency_mhz =
+            int chip_frequency_mhz =
                 quasar_processor_clock_mhz(zone_start_risc)
                     .value_or(tt::tt_metal::MetalContext::instance().get_cluster().get_device_aiclk(device_id));
+            if (chip_frequency_mhz == 0) {
+                chip_frequency_mhz = 1000;  // functional ttsim reports no AICLK
+            }
             result.duration = static_cast<uint64_t>(
                 std::round((result.end_timestamp - result.start_timestamp) * 1000.0 / chip_frequency_mhz));
         }
