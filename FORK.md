@@ -60,6 +60,24 @@ and their push triggers listen on `main`, which the fork does not have. Do not
 recreate `main` or open pull requests inside the fork. For the same reason,
 the fork has no Dependabot.
 
+## Using a release
+
+A release ships a ttnn wheel, with the `models/` that tt_transformers imports,
+and the Tracy tools. The wheel needs x86_64 Linux with glibc 2.34 or newer,
+Python 3.12, and libnuma, libhwloc, and libmpc at runtime; libmpc is for the
+SFPI kernel compiler, which the wheel does not bundle. A pixi environment with
+`python = "3.12.*"`, `libnuma`, `libhwloc`, and `mpc` from conda-forge covers
+them, as [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) does.
+
+At runtime, set:
+
+- `TT_METAL_RUNTIME_ROOT` to the installed `ttnn/` package;
+- `TT_METAL_HOME` to where the Tracy tools tarball is unpacked, for
+  `python -m tracy`;
+- `TT_METAL_SFPI_ROOT` to an unpacked SFPI release that
+  `tt_metal/sfpi-version` names;
+- for ttsim, the variables in `pixi.toml`'s `ttsim` feature.
+
 ## Side effects
 
 What the `just` recipes write and how long they take, measured on two
