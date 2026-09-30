@@ -61,10 +61,11 @@ TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
 TT_METAL_DISABLE_SFPLOADMACRO = "1"
 
-# Tests convert tensors with torch. PyPI's Linux torch is the CUDA build, so it
-# comes from the CPU index, which serves nothing else.
+# Tests convert tensors with torch, pinned to the version upstream tests with
+# in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
+# build, so it comes from the CPU index, which serves nothing else.
 [feature.ttsim.pypi-dependencies]
-torch = { version = "*", index = "https://download.pytorch.org/whl/cpu" }
+torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
 pytest = "*"
 
 [feature.dev.dependencies]
