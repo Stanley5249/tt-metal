@@ -35,10 +35,10 @@ build *args:
         --toolchain-path cmake/x86_64-linux-clang-20-conda-toolchain.cmake "$@"
 
 # Download the ttsim library that tt_metal/ttsim-version pins into sim/
-[arg("arch", long, pattern="wh|bh", help="wh: Wormhole, bh: Blackhole")]
+[arg("arch", long, pattern="wh|bh|", help="wh: Wormhole, bh: Blackhole; by default the arch already in sim/, else wh")]
 [group("setup")]
 [script]
-fetch-ttsim arch="wh":
+fetch-ttsim arch="":
     # tt-llk's copy of the pin carries the hashes; both must name one release.
     tag=$(tr -d '[:space:]' < tt_metal/ttsim-version)
     source tt_metal/tt-llk/tests/ttsim-version
@@ -46,19 +46,27 @@ fetch-ttsim arch="wh":
         echo "tt_metal/ttsim-version says $tag but tt-llk's hashes are for $ttsim_tag" >&2
         exit 1
     fi
-    case {{ arch }} in
+    # test and trace call this without an arch, so they keep the one in sim/.
+    arch={{ arch }}
+    if [ -z "$arch" ]; then
+        arch=$(cut -d' ' -f2 sim/.version 2>/dev/null || true)
+        arch=${arch:-wh}
+    fi
+    case $arch in
         wh) hash=$ttsim_wh_so_hash soc=wormhole_b0_80_arch.yaml ;;
         bh) hash=$ttsim_bh_so_hash soc=blackhole_140_arch.yaml ;;
     esac
     # .version names the release and arch in sim/, so a rerun downloads nothing.
-    if [ "$(cat sim/.version 2>/dev/null)" = "$tag {{ arch }}" ]; then
+    if [ "$(cat sim/.version 2>/dev/null)" = "$tag $arch" ]; then
         exit 0
     fi
     mkdir -p sim
-    curl -fsSL -o sim/libttsim.so "$ttsim_repo/releases/download/$tag/libttsim_{{ arch }}.so"
-    echo "$hash  sim/libttsim.so" | sha256sum -c --quiet -
+    # Verify before replacing, so a bad download never reaches TT_METAL_SIMULATOR.
+    curl -fsSL -o sim/libttsim.so.part "$ttsim_repo/releases/download/$tag/libttsim_$arch.so"
+    echo "$hash  sim/libttsim.so.part" | sha256sum -c --quiet -
+    mv sim/libttsim.so.part sim/libttsim.so
     cp "tt_metal/soc_descriptors/$soc" sim/soc_descriptor.yaml
-    echo "$tag {{ arch }}" > sim/.version
+    echo "$tag $arch" > sim/.version
 
 # Run pytest on ttsim; args go to pytest
 [group("test")]
