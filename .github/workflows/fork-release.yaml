@@ -26,7 +26,7 @@ jobs:
       # the runner's free disk.
       - uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
         with:
-          tool-cache: true
+          preinstalled-runtimes: true
 
       # Full history without blobs, so git describe finds the upstream tag;
       # --exclude skips the fork's own release tags.
