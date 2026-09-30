@@ -49,8 +49,9 @@ websockets = "*"
 [activation.env]
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
 TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
-# SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship.
-LD_LIBRARY_PATH = "$CONDA_PREFIX/lib"
+# SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship;
+# the caller's paths stay after it.
+LD_LIBRARY_PATH = "$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Run on ttsim in slow dispatch mode, with the variables that
 # .github/actions/setup-ttsim sets; `just fetch-ttsim` fills sim/.
