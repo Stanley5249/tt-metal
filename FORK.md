@@ -60,6 +60,39 @@ and their push triggers listen on `main`, which the fork does not have. Do not
 recreate `main` or open pull requests inside the fork. For the same reason,
 the fork has no Dependabot.
 
+## Side effects
+
+What the `just` recipes write and how long they take, measured on two
+machines: `local`, an Intel Core Ultra 9 185H under WSL 2 with 25 GB and
+`TT_BUILD_JOBS=10`, and `runner`, GitHub's `ubuntu-latest` with 4 vCPU, 16 GB,
+and the 4 jobs that `fork-release` sets. Both started without a build tree.
+
+| Step                        | `local`                           | `runner`                       |
+| --------------------------- | --------------------------------- | ------------------------------ |
+| `just build`, empty tree    | 32 min, with a warm CPM cache     | 47 min, with empty caches      |
+| `just build` after a merge  | 3 min for the patched files       | not measured                   |
+| `just wheel`, `tracy-tools` | 20 s                              | 25 s                           |
+| `just trace` on a small op  | about 40 s, with kernel compiling | not run                        |
+| whole `fork-release` run    |                                   | 51 min, 2 of them freeing disk |
+
+| Path or resource                         | Written by                       | Size on `local`                                                                |
+| ---------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| `.pixi/envs/`                            | `just install`, any recipe       | 2.9 GB, both                                                                   |
+| `build_Release/`, `build` linking to it  | `just build`                     | 2.3 GB                                                                         |
+| `runtime/`                               | `just build`, the SFPI compiler  | 0.4 GB                                                                         |
+| `~/.cache/cpm/`                          | `just build`                     | 4.0 GB                                                                         |
+| `~/.cache/ccache/`                       | `just build`                     | 0.6 GB                                                                         |
+| `sim/`                                   | `just fetch-ttsim`               | under 1 MB                                                                     |
+| `generated/`, `~/.cache/tt-metal-cache/` | `just test`, `just trace`        | 2 GB, shared                                                                   |
+| `build/profiler/build_wasm/traces/`      | `just trace`                     | small                                                                          |
+| `localhost:8080`                         | `just trace`                     | tt-metal's WASM viewer server; it keeps running until `pkill -f serve_wasm.py` |
+| `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | 0.4 GB                                                                         |
+| GitHub Actions cache                     | `fork-release`, `fork-checks`    | the pixi environment, and ccache with CPM keyed by the upstream tag            |
+
+The viewer server serves the `build_wasm` of the tree that started it, so stop
+it before tracing from another checkout, such as tt-vllm-tracer, on the same
+port.
+
 ## Releases
 
 A release tag names its upstream base and a rebuild count, such as
