@@ -34,15 +34,22 @@ and has a commit message that drafts the PR description.
 ## Syncing with upstream
 
 Sync on demand, when a fix or a ttsim release needs a newer upstream tag.
+Until step 5, `origin/` still holds the old branches, and the steps read them
+from there.
 
-1. Push the new upstream nightly tag to the fork; the release workflow reads
+1. Push the new upstream nightly tag to the fork. The release workflow reads
    it with `git describe`.
-2. Rebase each branch onto that tag.
-3. Recreate `tracy-ttsim` from that tag, merge every branch into it, then
-   cherry-pick the fork-only commits: everything above the last merge on the
-   old `tracy-ttsim`.
-4. Force-push the branches. Release tags keep earlier `tracy-ttsim` commits.
-5. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
+2. Rebase each branch onto that tag, except `feat/justfile`. Move it onto the
+   rebased `feat/pixi` with
+   `git rebase --onto feat/pixi origin/feat/pixi feat/justfile`.
+3. Recreate `tracy-ttsim` from that tag and merge every branch into it. Then
+   cherry-pick the fork-only commits with
+   `git cherry-pick <last merge>..origin/tracy-ttsim`, where `<last merge>` is
+   the last merge commit on the old `tracy-ttsim`.
+4. Run `pixi run just ci` and `pixi run just build`.
+5. Push the branches with `--force-with-lease`. This rewrites their published
+   history, but release tags keep earlier `tracy-ttsim` commits.
+6. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
    latest releases.
 
 When upstream merges a change, delete its branch and drop its row here.
