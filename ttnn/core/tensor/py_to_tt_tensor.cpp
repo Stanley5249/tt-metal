@@ -14,6 +14,8 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <cstdlib>
+
 using namespace tt::tt_metal;
 using ttnn::Tensor;
 
@@ -62,6 +64,16 @@ bool can_exec_ops_on_device(DataType type) {
     }
 };
 
+// ttsim rejects the fp32 unpack in on-device tilize as undefined behavior, and simulating the
+// conversion ops is slower than converting on the host anyway.
+bool is_simulator() {
+    static const bool simulator = [] {
+        const char* path = std::getenv("TT_METAL_SIMULATOR");
+        return path != nullptr && *path != '\0';
+    }();
+    return simulator;
+}
+
 bool can_construct_on_device(
     ttnn::distributed::MeshDevice* device,
     const ttnn::Shape& tensor_shape,
@@ -81,7 +93,7 @@ bool can_construct_on_device(
         return false;
     }
 
-    bool res = device != nullptr && !device->is_remote_only() &&
+    bool res = device != nullptr && !device->is_remote_only() && !is_simulator() &&
                (device->get_active_sub_device_manager_id() == device->get_default_sub_device_manager_id()) &&
                tensor_shape.volume() > 0 && can_exec_ops_on_device(src_dtype) && can_exec_ops_on_device(dst_dtype) &&
                enable_device_typecast &&
