@@ -39,8 +39,19 @@ jobs:
       - id: version
         run: |
           base=$(git describe --tags --abbrev=0 --match 'v[0-9]*-dev[0-9]*' --exclude 'v*-*-*')
+          tag="$base-${{ inputs.label }}"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "::error::$tag already exists"
+            exit 1
+          fi
+          # git-cliff ignores --tag on a commit that already has a release tag.
+          released=$(git tag --points-at HEAD --list 'v*-conda.*')
+          if [ -n "$released" ]; then
+            echo "::error::HEAD is already released as $released"
+            exit 1
+          fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "tag=$base-${{ inputs.label }}" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
@@ -65,7 +76,8 @@ jobs:
       - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: .github/cliff.toml
-          args: --offline --tag ${{ steps.version.outputs.tag }} ${{ steps.version.outputs.base }}..HEAD
+          # --unreleased drops earlier releases on the same upstream base.
+          args: --offline --unreleased --tag ${{ steps.version.outputs.tag }} ${{ steps.version.outputs.base }}..HEAD
         env:
           OUTPUT: dist/release-notes.md
           UPSTREAM_BASE: ${{ steps.version.outputs.base }}
