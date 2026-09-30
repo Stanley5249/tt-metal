@@ -62,21 +62,13 @@ jobs:
       - run: pixi run just wheel --label "${{ inputs.label }}"
       - run: pixi run just tracy-tools
 
-      # The environment table that .github/cliff.toml places at the top.
-      - run: |
-          {
-            echo "RELEASE_ENVIRONMENT<<EOF"
-            pixi run python .github/scripts/fork_release_env.py \
-              --tag "${{ steps.version.outputs.tag }}" --base "${{ steps.version.outputs.base }}"
-            echo EOF
-          } >> "$GITHUB_ENV"
-
       - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: .github/cliff.toml
           args: --offline --tag ${{ steps.version.outputs.tag }} ${{ steps.version.outputs.base }}..HEAD
         env:
           OUTPUT: dist/release-notes.md
+          UPSTREAM_BASE: ${{ steps.version.outputs.base }}
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
