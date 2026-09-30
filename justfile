@@ -62,8 +62,9 @@ fetch-ttsim arch="wh":
 
 # Run pytest on ttsim; args go to pytest
 [group("test")]
+[positional-arguments]
 test *args: fetch-ttsim
-    pixi run --environment ttsim pytest {{ args }}
+    pixi run --environment ttsim pytest "$@"
 
 # Profile a Python script on ttsim with Tracy and the device profiler; args go to the script
 [group("test")]
