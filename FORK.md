@@ -9,9 +9,8 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 ## Branches
 
-`main` mirrors upstream `main` and takes no commits. Every other branch starts
-from an upstream nightly tag, and `tracy-ttsim`, the default branch, merges
-them all.
+Every branch starts from an upstream nightly tag, and `tracy-ttsim`, the
+default branch, merges them all. The fork has no `main`; see Workflows.
 
 Each change that could go upstream sits on its own branch, in one of the
 upstream PR categories that `CONTRIBUTING.md` lists, and its commit message is
@@ -34,11 +33,30 @@ the draft PR description.
 
 ## Syncing with upstream
 
-1. Rebase each branch onto the new upstream nightly tag.
-2. Recreate `tracy-ttsim` from that tag and merge every branch into it.
-3. Force-push the branches. Release tags keep earlier `tracy-ttsim` commits.
+Sync on demand, when a fix or a ttsim release needs a newer upstream tag.
+
+1. Push the new upstream nightly tag to the fork; the release workflow reads
+   it with `git describe`.
+2. Rebase each branch onto that tag.
+3. Recreate `tracy-ttsim` from that tag and merge every branch into it.
+4. Force-push the branches. Release tags keep earlier `tracy-ttsim` commits.
+5. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
+   latest releases.
 
 When upstream merges a change, delete its branch and drop its row here.
+
+## Workflows
+
+`fork-checks` runs `just ci` on each push to `tracy-ttsim`. `fork-release`,
+started by hand on `tracy-ttsim` with a label such as `conda.1`, builds on a
+GitHub-hosted runner and drafts a release with the wheel, the Tracy tools, and
+notes that git-cliff writes from `.github/cliff.toml`.
+
+Upstream's workflows stay in the tree, unchanged, and do not fire here:
+scheduled runs and issues are off on forks, the fork opens no pull requests,
+and their push triggers listen on `main`, which the fork does not have. Do not
+recreate `main` or open pull requests inside the fork. For the same reason,
+the fork has no Dependabot.
 
 ## Releases
 
