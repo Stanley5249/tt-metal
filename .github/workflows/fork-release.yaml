@@ -13,8 +13,14 @@ on:
 permissions:
   contents: write
 
+# Two runs with one label would race for the same tag.
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: github.ref == 'refs/heads/tracy-ttsim'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -31,11 +37,13 @@ jobs:
           preinstalled-runtimes: true
 
       # Full history without blobs, so git describe finds the upstream tag;
-      # --exclude skips the fork's own release tags.
+      # --exclude skips the fork's own release tags. No step pushes, so the
+      # write token stays out of .git/config while the build runs.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           filter: blob:none
+          persist-credentials: false
           submodules: recursive
 
       - id: version
