@@ -180,3 +180,6 @@ tests/scripts/quasar/QUASAR_TEST_COVERAGE.md
 # pixi environments, and the ttsim library that `just fetch-ttsim` downloads
 .pixi/
 /sim/
+
+# Local overrides that the justfile loads
+/.env
