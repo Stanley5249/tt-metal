@@ -19,7 +19,7 @@ lld = "20.*"
 # llvm-ar, which the build uses for its static libraries.
 llvm-tools = "20.*"
 # glibc headers: cadical needs closefrom (2.34+); the default sysroot is 2.28.
-sysroot_linux-64 = ">=2.34"
+sysroot_linux-64 = "2.34.*"
 # libstdc++ headers matching Ubuntu 24.04, which tt-metal builds against; 16
 # drops transitive <cstdint> includes that vendored dependencies rely on.
 libgcc-devel_linux-64 = "13.*"
