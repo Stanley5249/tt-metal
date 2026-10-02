@@ -1,6 +1,7 @@
 # git-cliff notes for a fork release, in tt-vllm-tracer's style: one line on
-# the upstream tag it builds on, then the fork's own commits since that tag.
-# the fork workflow passes that range and sets UPSTREAM_BASE.
+# the upstream tag it builds on, then the fork's own commits since that tag, or
+# since the last release on it. The fork workflow passes that range and sets
+# UPSTREAM_BASE.
 
 [changelog]
 body = """

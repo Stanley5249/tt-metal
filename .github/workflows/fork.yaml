@@ -72,6 +72,7 @@ jobs:
       contents: write
     outputs:
       base: ${{ steps.version.outputs.base }}
+      since: ${{ steps.version.outputs.since }}
       label: ${{ steps.version.outputs.label }}
       tag: ${{ steps.version.outputs.tag }}
     env:
@@ -99,7 +100,18 @@ jobs:
           n=$(gh release list -L 1000 --json tagName -q '.[].tagName' |
             sed -n "s/^$base-conda\.\([0-9]*\)$/\1/p" | sort -n | tail -1)
           label="conda.$((${n:-0} + 1))"
+          # Notes start at the last published release on this base, if HEAD
+          # has one, else at the base. git-cliff's --unreleased would ignore
+          # the range and reach back to the previous base.
+          since=$base
+          for t in $(git tag --list "$base-conda.*" --sort=-version:refname); do
+            if git merge-base --is-ancestor "$t" HEAD; then
+              since=$t
+              break
+            fi
+          done
           echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "since=$since" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "tag=$base-$label" >> "$GITHUB_OUTPUT"
           echo "Building $base-$label" >> "$GITHUB_STEP_SUMMARY"
@@ -210,8 +222,7 @@ jobs:
       - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: .github/cliff.toml
-          # --unreleased drops earlier releases on the same upstream base.
-          args: --offline --unreleased --tag ${{ needs.version.outputs.tag }} ${{ needs.version.outputs.base }}..HEAD
+          args: --offline --tag ${{ needs.version.outputs.tag }} ${{ needs.version.outputs.since }}..HEAD
         env:
           OUTPUT: release-notes.md
           UPSTREAM_BASE: ${{ needs.version.outputs.base }}
