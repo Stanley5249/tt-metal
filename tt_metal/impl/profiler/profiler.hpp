@@ -79,6 +79,9 @@ private:
     // Device frequency
     int device_core_frequency{};
 
+    // Functional ttsim reports no AICLK and its wall clock only advances on host access
+    bool simulated_clock{};
+
     // Device max compute cores
     uint32_t max_compute_cores;
 
