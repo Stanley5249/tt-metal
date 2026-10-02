@@ -57,7 +57,9 @@ fetch-ttsim arch="":
     # GitHub records a sha256 digest for each release asset, which upstream's
     # tt-llk/tests/run_ttsim_regression.sh also checks against.
     asset=libttsim_$arch.so
-    hash=$(curl -fsSL "https://api.github.com/repos/{{ ttsim_repo }}/releases/tags/$tag" |
+    # A GH_TOKEN lifts the API's anonymous rate limit, which CI runners share.
+    hash=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
+        "https://api.github.com/repos/{{ ttsim_repo }}/releases/tags/$tag" |
         ASSET=$asset python3 -c '
     import json, os, sys
     for a in json.load(sys.stdin)["assets"]:
