@@ -38,12 +38,17 @@ jobs:
           locked: true
           cache: true
           cache-write: ${{ github.ref == 'refs/heads/tracy-ttsim' }}
-      - run: pixi run just ci
-      # The fork's own workflow and scripts, with tools outside pixi.lock.
-      # actionlint checks run: scripts with shellcheck when it is on PATH.
-      - run: pixi exec -s actionlint -s shellcheck -- actionlint .github/workflows/fork.yaml
-      - run: pixi exec zizmor --offline .github/workflows/fork.yaml
-      - run: pixi exec shellcheck .github/scripts/fork-*.sh
+          activate-environment: true
+      - run: just ci
+      # Lint the fork's own workflow and scripts. actionlint checks the
+      # workflow's syntax and expressions, and its run: scripts with
+      # shellcheck; zizmor audits it for security issues. The tools come from
+      # pixi exec because they are not part of pixi.lock.
+      - shell: pixi exec -s actionlint -s shellcheck -s zizmor -- bash -e {0}
+        run: |
+          actionlint .github/workflows/fork.yaml
+          zizmor --offline .github/workflows/fork.yaml
+          shellcheck .github/scripts/fork-*.sh
 
   # Upstream's workflows stay in the tree but must not run here; a sync adds
   # new ones, which start out active. After checks, GitHub has registered them.
@@ -65,7 +70,6 @@ jobs:
 
   version:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/tracy-ttsim'
-    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only push access lists draft releases, whose tags do not exist yet.
@@ -120,7 +124,7 @@ jobs:
           echo "Building $base-$label" >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    needs: version
+    needs: [checks, version]
     runs-on: ubuntu-latest
     timeout-minutes: 300
     # The build downloads third-party sources, so it gets no write access.
@@ -132,11 +136,6 @@ jobs:
       CCACHE_MAXSIZE: 3G
       LABEL: ${{ needs.version.outputs.label }}
     steps:
-      # The build tree, the CPM cache, and the pixi environment need more than
-      # the runner's free disk.
-      - uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
-        with:
-          preinstalled-runtimes: true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -148,6 +147,7 @@ jobs:
           pixi-version: v0.81.0
           locked: true
           cache: true
+          activate-environment: true
       # Keyed per run and restored by upstream tag, then by any build, so a
       # failed build still leaves its ccache for the next run. GitHub evicts
       # the oldest entries past the repository's 10 GB.
@@ -161,7 +161,7 @@ jobs:
             build-${{ needs.version.outputs.base }}-
             build-
       - id: build
-        run: pixi run just build
+        run: just build
       - if: always() && steps.build.outcome != 'skipped'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -169,8 +169,8 @@ jobs:
             ~/.cache/ccache
             ~/.cache/cpm
           key: build-${{ needs.version.outputs.base }}-${{ github.run_id }}
-      - run: pixi run just wheel --label "$LABEL"
-      - run: pixi run just tracy-tools
+      - run: just wheel --label "$LABEL"
+      - run: just tracy-tools
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
@@ -180,6 +180,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Installs the wheel in the pixi wheel environment, which has no editable
+  # ttnn, and runs one op on ttsim.
   smoke:
     needs: build
     runs-on: ubuntu-latest
@@ -191,12 +193,12 @@ jobs:
       matrix:
         arch: [wh, bh]
     env:
+      ARCH: ${{ matrix.arch }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: .github/scripts
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
@@ -204,10 +206,13 @@ jobs:
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
           pixi-version: v0.81.0
-          run-install: false
-      - run: >-
-          pixi exec -s python=3.12 -s libhwloc -s libnuma -s mpc -s uv --
-          bash .github/scripts/fork-smoke.sh ${{ matrix.arch }} dist
+          locked: true
+          cache: true
+          environments: wheel
+          activate-environment: wheel
+      - run: uv pip install dist/ttnn-*.whl
+      - run: just fetch-ttsim --arch "$ARCH"
+      - run: python .github/scripts/fork-smoke.py
 
   notes:
     if: inputs.release
