@@ -25,11 +25,6 @@ cmake = "*"
 ninja = "*"
 ccache = "*"
 pkg-config = "*"
-patchelf = "*"
-# Host libraries, the conda-forge side of install_dependencies.sh.
-libcapstone = "*"
-openssl = "*"
-tbb-devel = "*"
 
 [pypi-dependencies]
 # Editable: uses build_Release in place, so installing compiles nothing.
