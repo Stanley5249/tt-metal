@@ -13,7 +13,7 @@ from functools import partial
 from collections import namedtuple
 
 from pathlib import Path
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, Extension, find_namespace_packages, find_packages
 from setuptools.command.build_ext import build_ext
 from setuptools.command.editable_wheel import editable_wheel
 from setuptools_scm.version import guess_next_dev_version as _guess_next_dev
@@ -418,6 +418,22 @@ class CMakeBuild(build_ext):
 
 packages = find_packages(where="ttnn", exclude=["ttnn.examples", "ttnn.examples.*"])
 packages += find_packages("tools")
+# tt-vllm-tracer: ship the models/ subtrees that tt_transformers imports, with
+# its model parameters, so a wheel install needs no tt-metal checkout.
+models_roots = (
+    "tt_transformers",
+    "common",
+    "perf",
+    "demos.utils",
+    "demos.gpt_oss.tt",
+    "demos.gpt_oss.utils",
+    "demos.multimodal.gemma3",
+)
+packages += [
+    f"models.{name}"
+    for name in find_namespace_packages("models", exclude=["*.tests", "*.tests.*"])
+    if any(name == root or name.startswith(f"{root}.") for root in models_roots)
+]
 
 # Empty sources in order to force extension executions
 ttnn_lib_C = Extension("ttnn._ttnn", sources=[])
@@ -439,7 +455,15 @@ setup(
         "": "ttnn",
         "tracy": "tools/tracy",
         "triage": "tools/triage",
+        "models": "models",
     },
+    package_data={
+        "models": ["**/*.json", "**/*.yaml"],
+        # Folders such as Llama-3.2-1B-Instruct are not package names.
+        "models.tt_transformers": ["model_params/**/*"],
+    },
+    # setuptools-scm adds every tracked file under a package as data; skip tests.
+    exclude_package_data={"": ["tests/*"]},
     ext_modules=ext_modules,
     cmdclass=dict(build_ext=CMakeBuild, editable_wheel=EditableWheel),
     zip_safe=False,
