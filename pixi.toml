@@ -52,22 +52,13 @@ TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
 # SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship;
 # the caller's paths stay after it.
 LD_LIBRARY_PATH = "$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-
 # Run on ttsim in slow dispatch mode, with the variables that
 # .github/actions/setup-ttsim sets; `just fetch-ttsim` fills sim/.
-[feature.ttsim.activation.env]
 TT_METAL_SIMULATOR_HOME = "$PIXI_PROJECT_ROOT/sim"
 TT_METAL_SIMULATOR = "$PIXI_PROJECT_ROOT/sim/libttsim.so"
 TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
 TT_METAL_DISABLE_SFPLOADMACRO = "1"
-
-# Tests convert tensors with torch, pinned to the version upstream tests with
-# in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
-# build, so it comes from the CPU index, which serves nothing else.
-[feature.ttsim.pypi-dependencies]
-torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
-pytest = "*"
 
 [feature.dev.dependencies]
 just = "*"
@@ -75,6 +66,12 @@ tombi = "*"
 # `just wheel` packages the build with uv build.
 uv = "*"
 
+# Tests convert tensors with torch, pinned to the version upstream tests with
+# in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
+# build, so it comes from the CPU index, which serves nothing else.
+[feature.dev.pypi-dependencies]
+torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
+pytest = "*"
+
 [environments]
-default = { features = ["dev"], solve-group = "default" }
-ttsim = { features = ["ttsim", "dev"], solve-group = "default" }
+default = ["dev"]
