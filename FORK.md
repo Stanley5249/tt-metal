@@ -48,7 +48,14 @@ from there.
 4. Run `pixi run just ci` and `pixi run just build`.
 5. Push the branches with `--force-with-lease`. This rewrites their published
    history, but release tags keep earlier `tracy-ttsim` commits.
-6. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
+6. Disable the workflows that the new tag adds, which start out active:
+
+   ```sh
+   gh workflow list -R Stanley5249/tt-metal --json path -q '.[].path' |
+     grep -v '/fork-' | xargs -rn1 gh workflow disable -R Stanley5249/tt-metal
+   ```
+
+7. Check the pinned actions in `.github/workflows/fork-*.yaml` against their
    latest releases.
 
 When upstream merges a change, delete its branch and drop its row here.
@@ -61,12 +68,13 @@ GitHub-hosted runner and drafts a release with the wheel, the Tracy tools, and
 notes that git-cliff writes from `.github/cliff.toml`. N counts the releases on
 one upstream tag, and the workflow rejects other labels.
 
-Upstream's workflows stay in the tree, unchanged, and do not fire here:
-scheduled runs and issues are off on forks, the fork opens no pull requests,
-and most push triggers listen on `main`, which the fork does not have. The two
-`copilot-*` workflows that fire on any push are disabled in the repository's
-Actions settings. Do not recreate `main` or open pull requests inside the
-fork. For the same reason, the fork has no Dependabot.
+Upstream's workflows stay in the tree, unchanged, and are disabled in the
+repository's Actions settings. `tracy-ttsim` is the default branch, so their
+schedules would fire here and queue for Tenstorrent's self-hosted runners
+until GitHub drops them. Other events start none of them: issues are off on
+forks, the fork opens no pull requests, and most push triggers listen on
+`main`, which the fork does not have. Do not recreate `main` or open pull
+requests inside the fork. For the same reason, the fork has no Dependabot.
 
 ## Side effects
 
@@ -90,7 +98,7 @@ Sizes are from `local`.
 
 | Path or resource                         | Written by                       | Notes                                                                       |
 | ---------------------------------------- | -------------------------------- | --------------------------------------------------------------------------- |
-| `.pixi/envs/`                            | `just install`, any recipe       | both pixi environments, 2.9 GB                                              |
+| `.pixi/envs/`                            | `just install`, any recipe       | the pixi environment, 2.9 GB                                                |
 | `build_Release/`, `build` linking to it  | `just build`                     | 2.3 GB                                                                      |
 | `runtime/`                               | `just build`                     | the SFPI kernel compiler, 0.4 GB                                            |
 | `~/.cache/cpm/`                          | `just build`                     | CPM's source cache, 4.0 GB                                                  |
