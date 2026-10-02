@@ -12,6 +12,10 @@ set(CMAKE_LINKER_TYPE LLD)
 set(_env "$ENV{CONDA_PREFIX}")
 set(_link_flags "--no-default-config --sysroot=${_env}/x86_64-conda-linux-gnu/sysroot")
 string(APPEND _link_flags " -L${_env}/lib -Wl,-rpath-link,${_env}/lib")
+# Ubuntu's toolchain links --as-needed by default. Without it, libraries that
+# configure checks find in the environment stay NEEDED though unused, such as
+# the libnsl and libatomic that nng's checks add to libtt-umd.so.
+string(APPEND _link_flags " -Wl,--as-needed")
 foreach(kind EXE SHARED MODULE)
     set(CMAKE_${kind}_LINKER_FLAGS "${_link_flags}" CACHE STRING "" FORCE)
 endforeach()
