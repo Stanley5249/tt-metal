@@ -26,6 +26,7 @@ and has a commit message that drafts the PR description.
 | `feat/wheel-models`       | ship tt_transformers' `models/` in the ttnn wheel | Feature  | not proposed |
 | `feat/pixi`               | pixi workspace and conda clang toolchain          | Feature  | not proposed |
 | `feat/justfile`           | build, ttsim, and release recipes                 | Feature  | not proposed |
+| `fix/wheel-ttsim-version` | ship the ttsim version pin in the ttnn wheel      | Bug fix  | not proposed |
 
 `feat/wheel-models` serves vLLM on ttsim rather than Tracy, and
 `feat/justfile` builds on `feat/pixi`.
