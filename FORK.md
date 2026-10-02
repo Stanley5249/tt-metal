@@ -27,6 +27,7 @@ and has a commit message that drafts the PR description.
 | `feat/pixi`               | pixi workspace and conda clang toolchain          | Feature  | not proposed |
 | `feat/justfile`           | build, ttsim, and release recipes                 | Feature  | not proposed |
 | `fix/wheel-ttsim-version` | ship the ttsim version pin in the ttnn wheel      | Bug fix  | not proposed |
+| `feat/wheel-sfpi`         | bundle the SFPI kernel compiler in the ttnn wheel | Feature  | not proposed |
 
 `feat/wheel-models` serves vLLM on ttsim rather than Tracy, and
 `feat/justfile` builds on `feat/pixi`.
@@ -120,7 +121,7 @@ Sizes are from `local`.
 A release tag names its upstream base and a rebuild count, such as
 `v0.80.0-dev20260928-conda.1`, and its wheel carries the same count as a local
 version, such as `ttnn-0.80.0.dev20260928+conda.1`. The wheel ships the
-`models/` that tt_transformers imports.
+`models/` that tt_transformers imports and the SFPI kernel compiler.
 
 [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) installs and
 runs a release; its `pyproject.toml` and `docs/env-vars.md` list what the wheel
