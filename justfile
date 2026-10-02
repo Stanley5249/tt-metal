@@ -15,6 +15,7 @@ cpm_cache := home_directory() / ".cache/cpm"
 dist_dir := justfile_directory() / "dist"
 wheel_work := justfile_directory() / "build_wheel"
 tracy_asset := "tracy-tools-linux_x86_64.tar.gz"
+ttsim_repo := "tenstorrent/ttsim"
 
 # Fail instead of re-solving when pixi.lock is out of date; run `pixi lock` after a manifest change.
 export PIXI_LOCKED := "true"
@@ -38,13 +39,7 @@ build *args:
 [group("setup")]
 [script]
 fetch-ttsim arch="":
-    # tt-llk's copy of the pin carries the hashes; both must name one release.
     tag=$(tr -d '[:space:]' < tt_metal/ttsim-version)
-    source tt_metal/tt-llk/tests/ttsim-version
-    if [ "$ttsim_tag" != "$tag" ]; then
-        echo "tt_metal/ttsim-version says $tag but tt-llk's hashes are for $ttsim_tag" >&2
-        exit 1
-    fi
     # test and trace call this without an arch, so they keep the one in sim/.
     arch={{ arch }}
     if [ -z "$arch" ]; then
@@ -52,16 +47,30 @@ fetch-ttsim arch="":
         arch=${arch:-wh}
     fi
     case $arch in
-        wh) hash=$ttsim_wh_so_hash soc=wormhole_b0_80_arch.yaml ;;
-        bh) hash=$ttsim_bh_so_hash soc=blackhole_140_arch.yaml ;;
+        wh) soc=wormhole_b0_80_arch.yaml ;;
+        bh) soc=blackhole_140_arch.yaml ;;
     esac
     # .version names the release and arch in sim/, so a rerun downloads nothing.
     if [ "$(cat sim/.version 2>/dev/null)" = "$tag $arch" ]; then
         exit 0
     fi
+    # GitHub records a sha256 digest for each release asset, which upstream's
+    # tt-llk/tests/run_ttsim_regression.sh also checks against.
+    asset=libttsim_$arch.so
+    hash=$(curl -fsSL "https://api.github.com/repos/{{ ttsim_repo }}/releases/tags/$tag" |
+        ASSET=$asset python3 -c '
+    import json, os, sys
+    for a in json.load(sys.stdin)["assets"]:
+        if a["name"] == os.environ["ASSET"]:
+            print(a["digest"].removeprefix("sha256:"))
+    ')
+    if [ -z "$hash" ]; then
+        echo "no sha256 digest for $asset in ttsim $tag" >&2
+        exit 1
+    fi
     mkdir -p sim
     # Verify before replacing, so a bad download never reaches TT_METAL_SIMULATOR.
-    curl -fsSL -o sim/libttsim.so.part "$ttsim_repo/releases/download/$tag/libttsim_$arch.so"
+    curl -fsSL -o sim/libttsim.so.part "https://github.com/{{ ttsim_repo }}/releases/download/$tag/$asset"
     echo "$hash  sim/libttsim.so.part" | sha256sum -c --quiet -
     mv sim/libttsim.so.part sim/libttsim.so
     cp "tt_metal/soc_descriptors/$soc" sim/soc_descriptor.yaml
