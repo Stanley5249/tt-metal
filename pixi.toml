@@ -1,14 +1,18 @@
 # A pixi workspace that builds tt-metal without sudo: the C++ toolchain and host
 # libraries come from conda-forge, and every Python package comes from PyPI, so
 # the build and the Python that runs ttnn share one environment.
+#
+# Every package belongs to a named feature, and each environment lists the
+# features it needs; the default feature stays empty.
 [workspace]
 name = "tt-metal"
 channels = ["conda-forge"]
-requires-pixi = ">=0.78"
+requires-pixi = ">=0.81"
 # The sysroot pin below needs glibc 2.34.
 platforms = [{ platform = "linux-64", glibc = "2.34" }]
 
-[dependencies]
+# Building tt-metal, and running ttnn from this tree.
+[feature.build.dependencies]
 # Clang 20 is tt-metal's default compiler.
 clang = "20.*"
 clangxx = "20.*"
@@ -26,14 +30,14 @@ ninja = "*"
 ccache = "*"
 pkg-config = "*"
 
-[pypi-dependencies]
+[feature.build.pypi-dependencies]
 # Editable: uses build_Release in place, so installing compiles nothing.
 ttnn = { path = ".", editable = true }
 # tools/tracy serves its viewer with websockets, which upstream lists only in
 # tt_metal/python_env/requirements-dev.txt.
 websockets = "*"
 
-[activation.env]
+[feature.build.activation.env]
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
 TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
 
@@ -62,21 +66,29 @@ TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
 TT_METAL_DISABLE_SFPLOADMACRO = "1"
 
-[feature.dev.dependencies]
+# Command-line tools for the recipes and the CI checks.
+[feature.tools.dependencies]
 just = "*"
 tombi = "*"
 # `just wheel` packages the build with uv build.
 uv = "*"
+# The fork workflow lints itself: actionlint checks it and, through shellcheck,
+# its run: scripts; zizmor audits its security.
+actionlint = "*"
+shellcheck = "*"
+zizmor = "*"
 
 # Tests convert tensors with torch, pinned to the version upstream tests with
 # in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
 # build, so it comes from the CPU index, which serves nothing else.
-[feature.dev.pypi-dependencies]
+[feature.test.pypi-dependencies]
 torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
 pytest = "*"
 
+# default and wheel share a solve group, so a wheel is tested with the
+# versions it was built with.
 [environments]
-default = ["runtime", "dev"]
-# Runs a built ttnn wheel: no build toolchain, and no editable ttnn to shadow
-# the installed one.
-wheel = { features = ["runtime", "dev"], no-default-feature = true }
+default = { features = ["build", "runtime", "tools", "test"], solve-group = "main" }
+# Runs a built ttnn wheel, with no editable ttnn to shadow it.
+wheel = { features = ["runtime", "tools", "test"], solve-group = "main" }
+ci = ["tools"]
