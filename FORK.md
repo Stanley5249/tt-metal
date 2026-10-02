@@ -59,9 +59,10 @@ its row here; the next sync leaves it out.
 ```
 push to tracy-ttsim   checks ── disable-upstream
 
-started by hand       checks ── version ──┬── build ── smoke [wh, bh] ──┬── release
-                                          └── notes ────────────────────┘
-                                          (notes and release only with `release`)
+started by hand       checks ───────┐
+                      version ──┬───┴── build ── smoke [wh, bh] ──┬── release
+                                └── notes ────────────────────────┘
+                                (notes and release only with `release`)
 ```
 
 - `checks` runs `just ci` and lints the workflow and the `fork-*.sh` scripts.
@@ -69,8 +70,8 @@ started by hand       checks ── version ──┬── build ── smoke [
 - `version` names the next `conda.N` on the upstream tag, counting drafts.
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
-- `smoke` installs the wheel outside the build tree, as tt-vllm-tracer does,
-  and runs one op on ttsim with `.github/scripts/fork-smoke.sh`.
+- `smoke` installs the wheel in the pixi `wheel` environment, which has no
+  editable ttnn, and runs one op on ttsim with `.github/scripts/fork-smoke.py`.
 - `notes` runs git-cliff with `.github/cliff.toml`, and `release` drafts the
   release; it is the only job that writes to the repository.
 
