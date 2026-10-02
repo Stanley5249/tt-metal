@@ -38,17 +38,14 @@ jobs:
           locked: true
           cache: true
           cache-write: ${{ github.ref == 'refs/heads/tracy-ttsim' }}
+          environments: ci
           activate-environment: true
       - run: just ci
-      # Lint the fork's own workflow and scripts. actionlint checks the
-      # workflow's syntax and expressions, and its run: scripts with
-      # shellcheck; zizmor audits it for security issues. The tools come from
-      # pixi exec because they are not part of pixi.lock.
-      - shell: pixi exec -s actionlint -s shellcheck -s zizmor -- bash -e {0}
-        run: |
-          actionlint .github/workflows/fork.yaml
-          zizmor --offline .github/workflows/fork.yaml
-          shellcheck .github/scripts/fork-*.sh
+      # actionlint checks the workflow and, with shellcheck, its run: scripts;
+      # zizmor audits its security.
+      - run: actionlint .github/workflows/fork.yaml
+      - run: zizmor --offline .github/workflows/fork.yaml
+      - run: shellcheck .github/scripts/fork-*.sh
 
   # Upstream's workflows stay in the tree but must not run here; a sync adds
   # new ones, which start out active. After checks, GitHub has registered them.
