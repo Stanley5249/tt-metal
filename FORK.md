@@ -93,13 +93,14 @@ Ultra 9 185H under WSL 2 with 26 GB given to WSL and `TT_BUILD_JOBS=10`.
 `runner` is GitHub's `ubuntu-latest` with 4 vCPU, 16 GB, and the jobs that
 the build job sets.
 
-| Command                          | `local`                       | `runner`                       |
-| -------------------------------- | ----------------------------- | ------------------------------ |
-| `just build`, empty tree         | 32 min, with a warm CPM cache | 47 min, with empty caches      |
-| `just build` after a merge       | 3 min for the patched files   | not measured                   |
-| `just wheel`, `just tracy-tools` | 20 s                          | 25 s                           |
-| `just trace` on a small op       | about 40 s, compiling kernels | not run                        |
-| a whole release run              | not run                       | 51 min, 2 of them freeing disk |
+| Command                          | `local`                       | `runner`                                        |
+| -------------------------------- | ----------------------------- | ----------------------------------------------- |
+| `just build`, empty tree         | 32 min, with a warm CPM cache | 47 min, with empty caches                       |
+| `just build` after a merge       | 3 min for the patched files   | not measured                                    |
+| `just wheel`, `just tracy-tools` | not measured with SFPI        | 45 s                                            |
+| `just trace` on a small op       | about 40 s, compiling kernels | not run                                         |
+| a whole run, empty caches        | not run                       | 51 min, with a 2 min disk cleanup since dropped |
+| a whole run, warm ccache         | not run                       | 10 min                                          |
 
 Sizes are from `local`.
 
@@ -116,6 +117,21 @@ Sizes are from `local`.
 | `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | the release assets and the wheel's build files, 0.4 GB                        |
 | `localhost:8080`, `:8081`                | `just trace`                     | tt-metal's WASM viewer server for this tree, until `pkill -f serve_wasm.py`   |
 | GitHub Actions cache                     | the fork workflow                | the pixi environment, and ccache with CPM per build, restored by upstream tag |
+
+## Compared with upstream wheels
+
+Upstream publishes ttnn to PyPI from `.github/workflows/wheels.yaml`, which
+builds with cibuildwheel in a manylinux image. A fork release differs in:
+
+| Aspect                     | Upstream PyPI wheel                     | Fork release wheel                         |
+| -------------------------- | --------------------------------------- | ------------------------------------------ |
+| Tracy                      | off                                     | on                                         |
+| Multihost MPI              | on, with MPI bundled                    | off                                        |
+| SFPI kernel compiler       | installed separately                    | bundled                                    |
+| tt_transformers' `models/` | not shipped; models run from a checkout | bundled                                    |
+| Toolchain                  | the manylinux image's clang             | conda-forge clang 20                       |
+| Platform tag               | `manylinux_2_34`, with auditwheel       | `linux_x86_64`, needing the pixi `runtime` |
+| Version                    | the release tag, such as `0.79.0`       | the upstream tag plus `+conda.N`           |
 
 ## Releases
 
