@@ -133,13 +133,13 @@ tracy-tools:
 # Format pixi.toml and the justfile
 [group("verify")]
 fmt:
-    pixi run tombi format pixi.toml
+    pixi run -e ci tombi format pixi.toml
     just --fmt
 
 # Verify formatting and pixi.lock without rewriting sources
 [group("verify")]
 ci:
     pixi lock --check --dry-run
-    pixi run tombi format --check pixi.toml
-    pixi run tombi lint pixi.toml
+    pixi run -e ci tombi format --check pixi.toml
+    pixi run -e ci tombi lint pixi.toml
     just --fmt --check
