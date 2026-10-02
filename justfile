@@ -19,11 +19,10 @@ tracy_asset := "tracy-tools-linux_x86_64.tar.gz"
 # Fail instead of re-solving when pixi.lock is out of date; run `pixi lock` after a manifest change.
 export PIXI_LOCKED := "true"
 
-# Install a pixi environment
-[arg("env", long, pattern="default|ttsim", help="pixi environment")]
+# Install the pixi environment
 [group("setup")]
-install env="default":
-    pixi install --environment {{ env }}
+install:
+    pixi install
 
 # Build tt-metal with Tracy; args go to build_metal.sh
 [env("CMAKE_BUILD_PARALLEL_LEVEL", build_jobs)]
@@ -72,13 +71,13 @@ fetch-ttsim arch="":
 [group("test")]
 [positional-arguments]
 test *args: fetch-ttsim
-    pixi run --environment ttsim pytest "$@"
+    pixi run pytest "$@"
 
 # Profile a Python script on ttsim with Tracy and the device profiler; args go to the script
 [group("test")]
 [positional-arguments]
 trace script *args: fetch-ttsim
-    pixi run --environment ttsim python -m tracy -p -r "$@"
+    pixi run python -m tracy -p -r "$@"
 
 # Package the current build as a ttnn wheel in dist/; label becomes the local version, such as conda.1
 [arg("label", long, help="PEP 440 local version label")]
