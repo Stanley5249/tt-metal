@@ -5,6 +5,7 @@
 import os
 import glob
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -47,7 +48,9 @@ def get_lib_dir() -> str:
     return libdir
 
 
-BUNDLE_SFPI = False
+# The kernel JIT runs SFPI's compiler, so a wheel without it needs SFPI installed
+# separately, such as in /opt/tenstorrent/sfpi.
+BUNDLE_SFPI = True
 
 
 def expand_patterns(patterns):
@@ -72,8 +75,12 @@ def expand_patterns(patterns):
 
 
 def copy_tree_with_patterns(src_dir, dst_dir, patterns, exclude_files=[]):
-    """Copy only files matching glob patterns from src_dir into dst_dir, excluding specified files"""
+    """Copy only files matching glob patterns from src_dir into dst_dir, excluding specified files.
+
+    An exclude entry ending in "/" excludes every file under that path, relative to src_dir.
+    """
     # Convert exclude_files to a set for faster lookups if there are files to exclude
+    exclude_dirs = tuple(entry for entry in exclude_files if entry.endswith("/"))
     exclude_files = set(exclude_files) if exclude_files else None
 
     for pattern in expand_patterns(patterns):
@@ -87,12 +94,22 @@ def copy_tree_with_patterns(src_dir, dst_dir, patterns, exclude_files=[]):
             # Only check for exclusions if we have files to exclude
             if exclude_files is not None:
                 filename = os.path.basename(rel_path)
-                if filename in exclude_files:
+                if filename in exclude_files or rel_path.startswith(exclude_dirs):
                     print(f"excluding file: {rel_path}")
                     continue
             dst_path = os.path.join(dst_dir, rel_path)
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
+
+
+def check_sfpi_version(source_dir):
+    """Fail when runtime/sfpi is not the SFPI release that tt_metal/sfpi-version pins."""
+    pinned = re.search(r"^sfpi_version='(.+)'$", (source_dir / "tt_metal/sfpi-version").read_text(), re.M)
+    built = re.search(r"^Version: (.+)$", (source_dir / "runtime/sfpi/README.md").read_text(), re.M)
+    assert pinned and built, "Cannot read the SFPI versions"
+    assert (
+        pinned[1] == built[1]
+    ), f"runtime/sfpi is SFPI {built[1]}, but tt_metal/sfpi-version pins {pinned[1]}; rebuild to fetch it"
 
 
 class EnvVarNotFoundException(Exception):
@@ -306,27 +323,32 @@ class CMakeBuild(build_ext):
         runtime_exclude_files = []
         if BUNDLE_SFPI:
             runtime_patterns.append("sfpi/**/*")
+            # The JIT runs riscv-tt-elf-g++, which runs cc1plus, lto1, as, and ld.
+            # Debuggers, profilers, and the manuals stay out.
             runtime_exclude_files = [
-                "riscv32-unknown-elf-lto-dump",
-                "riscv32-unknown-elf-gdb",
-                "riscv32-unknown-elf-objdump",
-                "riscv32-unknown-elf-run",
-                "riscv32-unknown-elf-ranlib",
-                "riscv32-unknown-elf-gprof",
-                "riscv32-unknown-elf-strings",
-                "riscv32-unknown-elf-size",
-                "riscv32-unknown-elf-readelf",
-                "riscv32-unknown-elf-nm",
-                "riscv32-unknown-elf-c++filt",
-                "riscv32-unknown-elf-addr2line",
-                "riscv32-unknown-elf-gcov",
-                "riscv32-unknown-elf-gcov-tool",
-                "riscv32-unknown-elf-gcov-dump",
-                "riscv32-unknown-elf-elfedit",
-                "riscv32-unknown-elf-gcc-ranlib",
-                "riscv32-unknown-elf-gcc-nm",
-                "riscv32-unknown-elf-gdb-add-index",
+                *(
+                    f"riscv-tt-elf-{tool}"
+                    for tool in (
+                        "addr2line",
+                        "c++filt",
+                        "elfedit",
+                        "gcov",
+                        "gcov-dump",
+                        "gcov-tool",
+                        "gdb",
+                        "gdb-add-index",
+                        "gprof",
+                        "gstack",
+                        "lto-dump",
+                        "run",
+                        "size",
+                        "strings",
+                    )
+                ),
+                "g++-mapper-server",
+                "sfpi/compiler/share/",
             ]
+            check_sfpi_version(source_dir)
         ttnn_patterns = [
             # These weren't supposed to be in the JIT API, but one file currently is
             "api/ttnn/tensor/enum_types.hpp",
@@ -390,6 +412,9 @@ class CMakeBuild(build_ext):
         copy_tree_with_patterns(
             source_dir / "runtime", self.build_lib + "/ttnn/runtime", runtime_patterns, runtime_exclude_files
         )
+        if BUNDLE_SFPI:
+            # GCC, binutils, and newlib are GPL; runtime/sfpi/README.md names their sources.
+            copy_tree_with_patterns(source_dir / "tt_metal/sfpi-licenses", self.build_lib + "/ttnn/runtime/sfpi", ["*"])
         copy_tree_with_patterns(source_dir / "ttnn", self.build_lib + "/ttnn", ttnn_patterns)
         copy_tree_with_patterns(source_dir / "ttnn/cpp", self.build_lib + "/ttnn/ttnn/cpp", ttnn_cpp_patterns)
         copy_tree_with_patterns(source_dir / "tt_metal", self.build_lib + "/ttnn/tt_metal", tt_metal_patterns)
