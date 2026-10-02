@@ -1,0 +1,77 @@
+# A pixi workspace that builds tt-metal without sudo: the C++ toolchain and host
+# libraries come from conda-forge, and every Python package comes from PyPI, so
+# the build and the Python that runs ttnn share one environment.
+[workspace]
+name = "tt-metal"
+channels = ["conda-forge"]
+requires-pixi = ">=0.78"
+# The sysroot pin below needs glibc 2.34.
+platforms = [{ platform = "linux-64", glibc = "2.34" }]
+
+[dependencies]
+# Python itself is the only Python package from conda-forge; ttnn's bindings
+# are built against it.
+python = "3.12.*"
+# Clang 20 is tt-metal's default compiler.
+clang = "20.*"
+clangxx = "20.*"
+lld = "20.*"
+# llvm-ar, which the build uses for its static libraries.
+llvm-tools = "20.*"
+# glibc headers: cadical needs closefrom (2.34+); the default sysroot is 2.28.
+sysroot_linux-64 = "2.34.*"
+# libstdc++ headers matching Ubuntu 24.04, which tt-metal builds against; 16
+# drops transitive <cstdint> includes that vendored dependencies rely on.
+libgcc-devel_linux-64 = "13.*"
+libstdcxx-devel_linux-64 = "13.*"
+cmake = "*"
+ninja = "*"
+ccache = "*"
+pkg-config = "*"
+patchelf = "*"
+# Host libraries, the conda-forge side of install_dependencies.sh.
+libcapstone = "*"
+openssl = "*"
+tbb-devel = "*"
+# Libraries that tt-metal's shared libraries load at runtime.
+libhwloc = "*"
+libnuma = "*"
+# Runtime library of the SFPI RISC-V compiler that the kernel JIT runs.
+mpc = "*"
+
+[pypi-dependencies]
+# Editable: uses build_Release in place, so installing compiles nothing.
+ttnn = { path = ".", editable = true }
+# tools/tracy serves its viewer with websockets, which upstream lists only in
+# tt_metal/python_env/requirements-dev.txt.
+websockets = "*"
+
+[activation.env]
+TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
+TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
+# SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship;
+# the caller's paths stay after it.
+LD_LIBRARY_PATH = "$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Run on ttsim in slow dispatch mode, with the variables that
+# .github/actions/setup-ttsim sets; `just fetch-ttsim` fills sim/.
+TT_METAL_SIMULATOR_HOME = "$PIXI_PROJECT_ROOT/sim"
+TT_METAL_SIMULATOR = "$PIXI_PROJECT_ROOT/sim/libttsim.so"
+TT_METAL_SLOW_DISPATCH_MODE = "1"
+# ttsim does not simulate SFPLOADMACRO.
+TT_METAL_DISABLE_SFPLOADMACRO = "1"
+
+[feature.dev.dependencies]
+just = "*"
+tombi = "*"
+# `just wheel` packages the build with uv build.
+uv = "*"
+
+# Tests convert tensors with torch, pinned to the version upstream tests with
+# in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
+# build, so it comes from the CPU index, which serves nothing else.
+[feature.dev.pypi-dependencies]
+torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
+pytest = "*"
+
+[environments]
+default = ["dev"]

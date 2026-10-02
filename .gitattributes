@@ -6,3 +6,6 @@
 # Properly highlight all Dockerfiles
 Dockerfile.* linguist-language=Dockerfile
 *.dockerignore -linguist-language
+
+# Lockfiles: avoid git merge conflict markers, mark generated, suppress noisy diffs
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
