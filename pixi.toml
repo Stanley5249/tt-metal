@@ -9,9 +9,6 @@ requires-pixi = ">=0.78"
 platforms = [{ platform = "linux-64", glibc = "2.34" }]
 
 [dependencies]
-# Python itself is the only Python package from conda-forge; ttnn's bindings
-# are built against it.
-python = "3.12.*"
 # Clang 20 is tt-metal's default compiler.
 clang = "20.*"
 clangxx = "20.*"
@@ -33,11 +30,6 @@ patchelf = "*"
 libcapstone = "*"
 openssl = "*"
 tbb-devel = "*"
-# Libraries that tt-metal's shared libraries load at runtime.
-libhwloc = "*"
-libnuma = "*"
-# Runtime library of the SFPI RISC-V compiler that the kernel JIT runs.
-mpc = "*"
 
 [pypi-dependencies]
 # Editable: uses build_Release in place, so installing compiles nothing.
@@ -49,6 +41,19 @@ websockets = "*"
 [activation.env]
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
 TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
+
+# What running ttnn needs, from this tree or from a wheel.
+[feature.runtime.dependencies]
+# Python itself is the only Python package from conda-forge; ttnn's bindings
+# are built against it.
+python = "3.12.*"
+# Libraries that tt-metal's shared libraries load at runtime.
+libhwloc = "*"
+libnuma = "*"
+# Runtime library of the SFPI RISC-V compiler that the kernel JIT runs.
+mpc = "*"
+
+[feature.runtime.activation.env]
 # SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship;
 # the caller's paths stay after it.
 LD_LIBRARY_PATH = "$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -74,4 +79,7 @@ torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
 pytest = "*"
 
 [environments]
-default = ["dev"]
+default = ["runtime", "dev"]
+# Runs a built ttnn wheel: no build toolchain, and no editable ttnn to shadow
+# the installed one.
+wheel = { features = ["runtime", "dev"], no-default-feature = true }
