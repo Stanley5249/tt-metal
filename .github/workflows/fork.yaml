@@ -40,7 +40,8 @@ jobs:
           cache-write: ${{ github.ref == 'refs/heads/tracy-ttsim' }}
       - run: pixi run just ci
       # The fork's own workflow and scripts, with tools outside pixi.lock.
-      - run: pixi exec actionlint .github/workflows/fork.yaml
+      # actionlint checks run: scripts with shellcheck when it is on PATH.
+      - run: pixi exec -s actionlint -s shellcheck -- actionlint .github/workflows/fork.yaml
       - run: pixi exec zizmor --offline .github/workflows/fork.yaml
       - run: pixi exec shellcheck .github/scripts/fork-*.sh
 
@@ -110,10 +111,12 @@ jobs:
               break
             fi
           done
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "since=$since" >> "$GITHUB_OUTPUT"
-          echo "label=$label" >> "$GITHUB_OUTPUT"
-          echo "tag=$base-$label" >> "$GITHUB_OUTPUT"
+          {
+            echo "base=$base"
+            echo "since=$since"
+            echo "label=$label"
+            echo "tag=$base-$label"
+          } >> "$GITHUB_OUTPUT"
           echo "Building $base-$label" >> "$GITHUB_STEP_SUMMARY"
 
   build:
