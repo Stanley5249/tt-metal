@@ -48,10 +48,13 @@ from there.
 4. Run `pixi run just ci` and `pixi run just build`.
 5. Push the branches with `--force-with-lease`. This rewrites their published
    history, but release tags keep earlier `tracy-ttsim` commits.
-6. Disable the workflows that the new tag adds, which start out active:
+6. Disable the workflows that the new tag adds, which start out active.
+   GitHub registers them a little after the push, and only `--all` lists
+   them reliably:
 
    ```sh
-   gh workflow list -R Stanley5249/tt-metal --json path -q '.[].path' |
+   gh workflow list -R Stanley5249/tt-metal --all -L 500 --json path,state \
+     -q '.[] | select(.state == "active") | .path' |
      grep -v '/fork-' | xargs -rn1 gh workflow disable -R Stanley5249/tt-metal
    ```
 
