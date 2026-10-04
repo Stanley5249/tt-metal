@@ -95,9 +95,9 @@ trace script *args: fetch-ttsim
 [group("release")]
 [script]
 wheel label="":
-    # The upstream tag, such as v0.80.0-dev20260928, becomes 0.80.0.dev20260928.
-    # --exclude skips tags with a suffix, such as a fork's v0.80.0-dev20260928-conda.1.
-    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*-dev[0-9]*' --exclude 'v*-*-*')
+    # Stable tags stay unchanged; nightly tags become PEP 440 dev versions.
+    # Fork release tags must not become the upstream base.
+    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*')
     version="${tag#v}"
     version="${version/-dev/.dev}"
     if [ -n "{{ label }}" ]; then

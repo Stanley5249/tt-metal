@@ -55,9 +55,8 @@ commit_parsers = [
   # this only takes conventional commits of other types.
   { message = ".*", group = "<!-- 10 -->💼 Other" },
 ]
-# Fork release tags, such as v0.80.0-dev20260928-conda.1; upstream's tags do
-# not match.
-tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+-dev[0-9]+-conda\\.[0-9]+$"
+# Both stable and nightly fork releases; upstream tags do not match.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+(-dev[0-9]+)?-conda\\.[0-9]+$"
 sort_commits = "newest"
 
 [remote.github]

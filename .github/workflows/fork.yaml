@@ -1,12 +1,12 @@
-# The fork's only workflow. A push to tracy-ttsim runs the checks and disables
-# upstream's workflows. A run started by hand on tracy-ttsim also builds,
+# The fork's only workflow. Pushes to stable and nightly run checks and disable
+# upstream's workflows. A manual run on either integration branch also builds,
 # smoke-tests the wheel on ttsim, and with `release` drafts a release with the
 # wheel, the Tracy tools, and notes from git-cliff. FORK.md explains it.
 name: fork
 
 on:
   push:
-    branches: [tracy-ttsim]
+    branches: [stable, nightly, "feat/**", "fix/**", "chore/sync-*"]
   workflow_dispatch:
     inputs:
       release:
@@ -19,7 +19,7 @@ permissions: {}
 # A new push replaces checks still running; manual runs queue, since two
 # releases would race for one label.
 concurrency:
-  group: fork-${{ github.event_name }}
+  group: fork-${{ github.ref_name }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
           pixi-version: v0.81.0
           locked: true
           cache: true
-          cache-write: ${{ github.ref == 'refs/heads/tracy-ttsim' }}
+          cache-write: ${{ github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly' }}
           environments: ci
           activate-environment: true
       - run: just ci
@@ -50,7 +50,7 @@ jobs:
   # Upstream's workflows stay in the tree but must not run here; a sync adds
   # new ones, which start out active. After checks, GitHub has registered them.
   disable-upstream:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly')
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -66,7 +66,7 @@ jobs:
             xargs -rn1 gh workflow disable
 
   version:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/tracy-ttsim'
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only push access lists draft releases, whose tags do not exist yet.
@@ -91,7 +91,15 @@ jobs:
       - id: version
         run: |
           # --exclude skips the fork's own release tags.
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*-dev[0-9]*' --exclude 'v*-*-*')
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*')
+          if [[ "$GITHUB_REF_NAME" == stable && ! "$base" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::stable must use an upstream release tag"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_NAME" == nightly && ! "$base" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$ ]]; then
+            echo "::error::nightly must use an upstream nightly tag"
+            exit 1
+          fi
           # git-cliff ignores --tag on a commit that already has a release tag.
           released=$(git tag --points-at HEAD --list 'v*-conda.*')
           if [ "$RELEASE" = true ] && [ -n "$released" ]; then
@@ -100,7 +108,7 @@ jobs:
           fi
           # conda.N counts releases on one upstream tag, drafts included.
           n=$(gh release list -L 1000 --json tagName -q '.[].tagName' |
-            sed -n "s/^$base-conda\.\([0-9]*\)$/\1/p" | sort -n | tail -1)
+            sed -n "s/^${base//./\\.}-conda\.\([0-9]*\)$/\1/p" | sort -n | tail -1)
           label="conda.$((${n:-0} + 1))"
           # Notes start at the last published release on this base, if HEAD
           # has one, else at the base. git-cliff's --unreleased would ignore
@@ -153,10 +161,10 @@ jobs:
           path: |
             ~/.cache/ccache
             ~/.cache/cpm
-          key: build-${{ needs.version.outputs.base }}-${{ github.run_id }}
+          key: build-${{ github.ref_name }}-${{ needs.version.outputs.base }}-${{ github.run_id }}
           restore-keys: |
-            build-${{ needs.version.outputs.base }}-
-            build-
+            build-${{ github.ref_name }}-${{ needs.version.outputs.base }}-
+            build-${{ github.ref_name }}-
       - id: build
         run: just build
       - if: always() && steps.build.outcome != 'skipped'
@@ -165,7 +173,7 @@ jobs:
           path: |
             ~/.cache/ccache
             ~/.cache/cpm
-          key: build-${{ needs.version.outputs.base }}-${{ github.run_id }}
+          key: build-${{ github.ref_name }}-${{ needs.version.outputs.base }}-${{ github.run_id }}
       - run: just wheel --label "$LABEL"
       - run: just tracy-tools
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -210,6 +218,19 @@ jobs:
       - run: uv pip install dist/ttnn-*.whl
       - run: just fetch-ttsim --arch "$ARCH"
       - run: python .github/scripts/fork-smoke.py
+      # Test the shipped capture tools and simulator device timestamps too.
+      - run: |
+          tar -xzf dist/tracy-tools-linux_x86_64.tar.gz
+          python -m tracy -p -r --check-exit-code .github/scripts/fork-smoke.py
+          test -n "$(find generated -name '*.tracy' -size +0c -print -quit)"
+          test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ matrix.arch }}
+          path: generated/
+          if-no-files-found: warn
+          retention-days: 7
 
   notes:
     if: inputs.release
@@ -254,7 +275,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
-        run: >-
-          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG"
-          --notes-file assets/notes/release-notes.md
-          assets/dist/ttnn-*.whl assets/dist/tracy-tools-linux_x86_64.tar.gz
+        run: |
+          flags=()
+          if [ "$GITHUB_REF_NAME" = nightly ]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" \
+            "${flags[@]}" --notes-file assets/notes/release-notes.md \
+            assets/dist/ttnn-*.whl assets/dist/tracy-tools-linux_x86_64.tar.gz
