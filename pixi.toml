@@ -33,9 +33,6 @@ pkg-config = "*"
 [feature.build.pypi-dependencies]
 # Editable: uses build_Release in place, so installing compiles nothing.
 ttnn = { path = ".", editable = true }
-# tools/tracy serves its viewer with websockets, which upstream lists only in
-# tt_metal/python_env/requirements-dev.txt.
-websockets = "*"
 
 [feature.build.activation.env]
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
@@ -53,6 +50,10 @@ libnuma = "*"
 # brings gmp and mpfr for cc1plus, and zstd is for as and ld.
 mpc = "*"
 zstd = "*"
+
+[feature.runtime.pypi-dependencies]
+# Tracy imports its viewer server during capture, including clean-wheel runs.
+websockets = "*"
 
 [feature.runtime.activation.env]
 # SFPI's prebuilt compiler links libmpc.so.3, which the system does not ship;
