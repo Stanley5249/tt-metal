@@ -1,7 +1,7 @@
 # Stanley5249/tt-metal
 
-This file belongs to the fork only. It lives on `tracy-ttsim` and never goes
-upstream.
+This file belongs to the fork only. It lives on `stable` and `nightly` and
+never goes upstream.
 
 This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal)
 builds tt-metal with Tracy for the ttsim simulator, in a pixi environment that
@@ -9,13 +9,16 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 ## Branches
 
-`tracy-ttsim`, the default branch, is an upstream nightly tag, then a merge of
-every branch below, then the fork-only commits: this file, `.github/workflows/fork.yaml`,
-`.github/scripts/fork-*.sh`, and `.github/cliff.toml`. The fork has no `main`; see Workflows.
+`stable` is the default development branch, based on an upstream release tag.
+`nightly` tests the fork's patches against selected upstream nightly tags.
+Release tags preserve exact versions; integration branches move forward without
+rewriting published history. The fork has no `main`; see Workflows.
 
-Every other branch is a change that could go upstream. Each starts from the
-same upstream tag, fits one of the PR categories that `CONTRIBUTING.md` lists,
-and has a commit message that drafts the PR description.
+New `feat/*` and `fix/*` branches start from their target integration branch.
+Merge normal development into `stable`, then cherry-pick relevant commits onto
+a task branch for `nightly`. Do not merge the whole nightly branch into stable.
+The existing branches below preserve the original upstream-facing patches;
+porting them does not rebase or rewrite those branches.
 
 | Branch                    | Change                                            | Category | Upstream     |
 | ------------------------- | ------------------------------------------------- | -------- | ------------ |
@@ -34,30 +37,31 @@ and has a commit message that drafts the PR description.
 
 ## Syncing with upstream
 
-Sync on demand, when a fix or a ttsim release needs a newer upstream tag.
+Sync nightly on demand or weekly. Upgrade stable only to a selected upstream
+release; cherry-pick individual upstream fixes when a full upgrade is not needed.
 
-1. Run `.github/scripts/fork-sync.sh <tag>` with the new upstream nightly tag.
-   It rebases every branch that `tracy-ttsim` merges, recreates `tracy-ttsim`
-   from the tag with the same merges and the fork-only commits, runs
-   `just ci`, and prints a range-diff against `origin/tracy-ttsim`.
-2. Push the tag, then the branches with `--force-with-lease`. This rewrites
-   their published history, but release tags keep earlier `tracy-ttsim`
-   commits. The workflow disables any upstream workflow that the tag adds.
-3. Start the workflow by hand to build and smoke-test the result, and with
-   `release` to draft a release.
-4. Check the pinned actions in `.github/workflows/fork.yaml` against their
-   latest releases.
+1. Run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`. It creates a
+   `chore/sync-*` candidate and merges the upstream tag without rewriting any
+   integration or patch branch. It does not build locally or push anything.
+2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
+   and remove fork code that upstream now provides. Push the candidate for
+   fast CI checks, then review and merge it into its target branch.
+3. Run the fork workflow by hand on that integration branch for the full build,
+   clean-wheel simulator tests and Tracy capture checks. Do not draft a release
+   until they pass; `release` drafts one after the same checks pass again.
+4. Review the draft and publish it separately, only after approval. Nightly
+   drafts are marked as prereleases.
 
-To add a branch, merge it into `tracy-ttsim`, which names it for the next
-sync. When upstream merges a change, delete its branch on `origin` and drop
-its row here; the next sync leaves it out.
+When upstream includes a patch, stop carrying its implementation on each track
+once that track reaches the upstream fix. The two tracks may drop it at different
+times.
 
 ## Workflows
 
 `.github/workflows/fork.yaml` is the fork's only workflow.
 
 ```
-push to tracy-ttsim   checks ── disable-upstream
+push to stable/nightly   checks ── disable-upstream
 
 started by hand       checks ───────┐
                       version ──┬───┴── build ── smoke [wh, bh] ──┬── release
@@ -71,12 +75,14 @@ started by hand       checks ───────┐
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
 - `smoke` installs the wheel in the pixi `wheel` environment, which has no
-  editable ttnn, and runs one op on ttsim with `.github/scripts/fork-smoke.py`.
+  editable ttnn, runs one op on both simulator architectures, and verifies Tracy
+  capture and device profiler artifacts using the shipped tools.
 - `notes` runs git-cliff with `.github/cliff.toml`, and `release` drafts the
   release; it is the only job that writes to the repository.
 
 Upstream's workflows stay in the tree, unchanged, and are disabled in the
-repository's Actions settings; `disable-upstream` catches the ones a sync adds. `tracy-ttsim` is the default branch, so their
+repository's Actions settings; `disable-upstream` catches the ones a sync adds.
+The integration branch is the default branch, so their
 schedules would fire here and queue for Tenstorrent's self-hosted runners
 until GitHub drops them. Other events start none of them: issues are off on
 forks, the fork opens no pull requests, and most push triggers listen on
@@ -135,9 +141,10 @@ builds with cibuildwheel in a manylinux image. A fork release differs in:
 
 ## Releases
 
-A release tag names its upstream base and a rebuild count, such as
-`v0.80.0-dev20260928-conda.1`, and its wheel carries the same count as a local
-version, such as `ttnn-0.80.0.dev20260928+conda.1`. The wheel ships the
+A release tag names its upstream base and a rebuild count: stable uses
+`v0.79.0-conda.1`, while nightly uses `v0.80.0-dev20260928-conda.1`.
+Wheels use the same count as a local version, such as `0.79.0+conda.1` or
+`0.80.0.dev20260928+conda.1`. The wheel ships the
 `models/` that tt_transformers imports and the SFPI kernel compiler.
 
 [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) installs and
