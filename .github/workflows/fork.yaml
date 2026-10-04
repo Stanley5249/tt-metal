@@ -1,18 +1,25 @@
 # The fork's only workflow. Pushes to stable and nightly run checks and disable
 # upstream's workflows. A manual run on either integration branch also builds,
 # smoke-tests the wheel on ttsim, and with `release` drafts a release with the
-# wheel, the Tracy tools, and notes from git-cliff. FORK.md explains it.
+# wheel, the Tracy tools, and notes from git-cliff. Published releases notify
+# tt-vllm-tracer; drafts never do. FORK.md explains it.
 name: fork
 
 on:
   push:
-    branches: [stable, nightly, "feat/**", "fix/**", "chore/sync-*"]
+    branches: [stable, nightly, "feat/**", "fix/**", "ci/**", "chore/sync-*"]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       release:
         description: "Draft a release once the smoke tests pass"
         type: boolean
         default: false
+      notify_release:
+        description: "Retry notifying tracer for an already published fork release"
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -66,7 +73,7 @@ jobs:
             xargs -rn1 gh workflow disable
 
   version:
-    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly')
+    if: github.event_name == 'workflow_dispatch' && inputs.notify_release == '' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only push access lists draft releases, whose tags do not exist yet.
@@ -259,7 +266,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The only job that writes to the repository, and it runs no build code.
+  # Only this job writes release assets, and it runs no build code.
   release:
     if: inputs.release
     needs: [version, smoke, notes]
@@ -283,3 +290,44 @@ jobs:
           gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" \
             "${flags[@]}" --notes-file assets/notes/release-notes.md \
             assets/dist/ttnn-*.whl assets/dist/tracy-tools-linux_x86_64.tar.gz
+
+  notify-tracer:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.notify_release != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ inputs.notify_release || github.event.release.tag_name }}
+    steps:
+      # Do not check out or run release code with the cross-repository secret.
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev[0-9]+)?-conda\.[0-9]+$ ]]; then
+            echo "::error::Expected a fork release tag"
+            exit 1
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != false ]; then
+            echo "::error::Draft releases cannot notify tracer"
+            exit 1
+          fi
+          track=stable
+          if [[ "$TAG" == *-dev* ]]; then
+            track=nightly
+          fi
+          echo "track=$track" >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ secrets.TRACER_DISPATCH_TOKEN }}
+          TRACK: ${{ steps.release.outputs.track }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::TRACER_DISPATCH_TOKEN is not configured"
+            exit 1
+          fi
+          jq -n --arg release "$TAG" --arg track "$TRACK" \
+            '{event_type: "tt-metal-released", client_payload: {repository: "Stanley5249/tt-metal", release: $release, track: $track}}' |
+            gh api --method POST repos/Stanley5249/tt-vllm-tracer/dispatches --input -
+          echo "Notified tracer: $TRACK / $TAG" >> "$GITHUB_STEP_SUMMARY"

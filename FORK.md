@@ -78,7 +78,12 @@ started by hand       checks ───────┐
   editable ttnn, runs one op on both simulator architectures, and verifies Tracy
   capture and device profiler artifacts using the shipped tools.
 - `notes` runs git-cliff with `.github/cliff.toml`, and `release` drafts the
-  release; it is the only job that writes to the repository.
+  release; it is the only job that writes to this repository.
+- `notify-tracer` sends a published release tag to `tt-vllm-tracer`, which tests
+  the dependency update and opens a PR to the matching stable or nightly track.
+  Drafts never notify tracer. `TRACER_DISPATCH_TOKEN` is an Actions secret scoped
+  to tracer's Contents write permission. Use the manual `notify_release` input
+  to retry a notification without rebuilding or publishing anything.
 
 Upstream's workflows stay in the tree, unchanged, and are disabled in the
 repository's Actions settings; `disable-upstream` catches the ones a sync adds.
