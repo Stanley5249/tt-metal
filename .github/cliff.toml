@@ -18,6 +18,8 @@ body = """
 
 {#- The GitHub release title carries the version, so the body does not. -#}
 {%- set base = get_env(name="UPSTREAM_BASE") -%}
+{#- Skipped tags leave no previous version, so the workflow names it. -#}
+{%- set previous_release = get_env(name="PREVIOUS_RELEASE", default="") -%}
 Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/releases/tag/{{ base }}). [FORK.md]({{ self::remote_url() }}/blob/{{ version }}/FORK.md) lists the patches.
 {% for group, commits in commits | group_by(attribute="group") %}
     ## {{ group | striptags | trim }}
@@ -31,8 +33,6 @@ Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/release
         {{ self::print_commit(commit=commit) }}
     {%- endfor %}
 {% endfor %}
-{#- Skipped tags leave no previous version, so the workflow names it. -#}
-{% set previous_release = get_env(name="PREVIOUS_RELEASE", default="") -%}
 {% if previous_release %}\
     **Full Changelog**: [{{ previous_release }}...{{ version }}]({{ self::remote_url() }}/compare/{{ previous_release }}...{{ version }})
 {% endif %}
