@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare an upstream upgrade without rewriting integration or patch branches.
+# Prepare an upstream upgrade without rewriting the integration branch.
 # Usage: fork-sync.sh <stable|nightly> <upstream tag>
 # A nightly candidate first takes stable's fork infrastructure as one commit.
 # Resolve conflicts and run CI before merging the candidate into its target.

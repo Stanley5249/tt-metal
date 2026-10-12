@@ -52,9 +52,7 @@ The source patches, none of them proposed upstream:
 | bundle the SFPI kernel compiler in the ttnn wheel | `setup.py`, `tt_metal/sfpi-licenses/`                                    |
 | build in a pixi environment                       | `.gitattributes`, `.gitignore`                                           |
 
-The `models/` patch serves vLLM on ttsim rather than Tracy. Older patch
-branches, such as `feat/ttsim-profiler`, are frozen records of the first
-versions and do not follow later changes.
+The `models/` patch serves vLLM on ttsim rather than Tracy.
 
 ## Syncing with upstream
 
@@ -62,8 +60,8 @@ Sync nightly on demand or weekly. Upgrade stable only to a selected upstream
 release; cherry-pick individual upstream fixes when a full upgrade is not needed.
 
 1. Run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`. It creates a
-   `chore/sync-*` candidate and merges the upstream tag without rewriting any
-   integration or patch branch. A nightly candidate first takes stable's fork
+   `chore/sync-*` candidate and merges the upstream tag without rewriting the
+   integration branch. A nightly candidate first takes stable's fork
    infrastructure. The script does not build locally or push anything.
 2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
    and remove fork code that upstream now provides. Push the candidate for
