@@ -95,6 +95,7 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - run: .github/scripts/fork-upstream-tags.sh
       - id: version
         run: |
           # --exclude skips the fork's own release tags.
@@ -119,7 +120,8 @@ jobs:
           label="conda.$((${n:-0} + 1))"
           # Notes start at the last published release on this base, if HEAD
           # has one, else at the base. git-cliff's --unreleased would ignore
-          # the range and reach back to the previous base.
+          # the range and reach back to the previous base. The notes job
+          # gets a commit, because it does not fetch upstream tags.
           since=$base
           for t in $(git tag --list "$base-conda.*" --sort=-version:refname); do
             if git merge-base --is-ancestor "$t" HEAD; then
@@ -129,7 +131,7 @@ jobs:
           done
           {
             echo "base=$base"
-            echo "since=$since"
+            echo "since=$(git rev-parse "$since^{commit}")"
             echo "label=$label"
             echo "tag=$base-$label"
           } >> "$GITHUB_OUTPUT"
@@ -154,6 +156,8 @@ jobs:
           filter: blob:none
           persist-credentials: false
           submodules: recursive
+      # `just wheel` takes its version from the upstream tag.
+      - run: .github/scripts/fork-upstream-tags.sh
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
           pixi-version: v0.81.0
