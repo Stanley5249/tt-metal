@@ -32,6 +32,11 @@ jobs:
           environments: ci
           activate-environment: true
       - run: just ci
+      # Nightly keeps stable's fork infrastructure; FORK.md explains why.
+      - if: github.ref == 'refs/heads/nightly'
+        run: |
+          git fetch -q --no-tags --depth=1 origin stable:refs/remotes/origin/stable
+          .github/scripts/fork-infra.sh check
 
   # Upstream's workflows stay in the tree but must not run here; a sync adds
   # new ones, which start out active. After checks, GitHub has registered them.

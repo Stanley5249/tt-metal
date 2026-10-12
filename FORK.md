@@ -9,31 +9,52 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 ## Branches
 
-`stable` is the default development branch, based on an upstream release tag.
-`nightly` tests the fork's patches against selected upstream nightly tags.
-Release tags preserve exact versions; integration branches move forward without
-rewriting published history. The fork has no `main`; see Workflows.
+`stable` is the default branch, based on an upstream release tag. `nightly`
+carries the same fork on a selected upstream nightly tag. Upstream releases
+come from their own line, so `v0.79.0` is not an ancestor of later nightlies,
+and neither branch merges into the other. Release tags preserve exact
+versions; both branches move forward without rewriting published history. The
+fork has no `main`; see Workflows.
 
-New `feat/*` and `fix/*` branches start from their target integration branch.
-Merge normal development into `stable`, then cherry-pick relevant commits onto
-a task branch for `nightly`. Do not merge the whole nightly branch into stable.
-The existing branches below preserve the original upstream-facing patches;
-porting them does not rebase or rewrite those branches.
+```text
+upstream releases -- v0.79.0 ---------------------------- v0.80.0
+                        \                                    \
+stable                   M -- infra change -- source patch -- M
+                                   |                |
+                              copy |                | cherry-pick
+                                   v                v
+nightly            M ------- infra snapshot -- source patch ----- M
+                  /                                              /
+upstream main -- v0.80.0-dev20261002 ----------------- v0.81.0-dev20261011
+```
 
-| Branch                    | Change                                            | Category | Upstream     |
-| ------------------------- | ------------------------------------------------- | -------- | ------------ |
-| `feat/ttsim-host-tensors` | build tensors on the host under ttsim             | Feature  | not proposed |
-| `feat/ttsim-profiler`     | device profiler on ttsim's clock                  | Feature  | not proposed |
-| `fix/device-marker-order` | skip unpaired device markers instead of aborting  | Bug fix  | not proposed |
-| `feat/sfpi-root-override` | `TT_METAL_SFPI_ROOT` for the kernel JIT           | Feature  | not proposed |
-| `feat/wheel-models`       | ship tt_transformers' `models/` in the ttnn wheel | Feature  | not proposed |
-| `feat/pixi`               | pixi workspace and conda clang toolchain          | Feature  | not proposed |
-| `feat/justfile`           | build, ttsim, and release recipes                 | Feature  | not proposed |
-| `fix/wheel-ttsim-version` | ship the ttsim version pin in the ttnn wheel      | Bug fix  | not proposed |
-| `feat/wheel-sfpi`         | bundle the SFPI kernel compiler in the ttnn wheel | Feature  | not proposed |
+All development starts from `stable` in a `feat/*`, `fix/*`, or `ci/*` branch
+and merges there first. Nightly takes it in one of two ways:
 
-`feat/wheel-models` serves vLLM on ttsim rather than Tracy, and
-`feat/justfile` builds on `feat/pixi`.
+- Fork infrastructure, the paths that `.github/fork-infra` lists, has no
+  upstream counterpart and stays identical on both branches. Run
+  `.github/scripts/fork-infra.sh copy` on a task branch from nightly to take
+  stable's copy as one commit. `fork-checks` fails on nightly when the two
+  differ.
+- Source patches change upstream files, so cherry-pick each onto a task branch
+  from nightly, and adapt it there when nightly's upstream has moved.
+
+The source patches, none of them proposed upstream:
+
+| Patch                                             | Upstream files                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| build tensors on the host under ttsim             | `ttnn/core/tensor/py_to_tt_tensor.cpp`                                   |
+| device profiler on ttsim's clock                  | `tt_metal/impl/profiler/`, `tt_metal/tools/profiler/kernel_profiler.hpp` |
+| skip unpaired device markers instead of aborting  | `tt_metal/impl/profiler/profiler.cpp`                                    |
+| `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                                           |
+| ship tt_transformers' `models/` in the ttnn wheel | `setup.py`, `models/tt_transformers/tt/model_config.py`                  |
+| ship the ttsim version pin in the ttnn wheel      | `setup.py`                                                               |
+| bundle the SFPI kernel compiler in the ttnn wheel | `setup.py`, `tt_metal/sfpi-licenses/`                                    |
+| build in a pixi environment                       | `.gitattributes`, `.gitignore`                                           |
+
+The `models/` patch serves vLLM on ttsim rather than Tracy. Older patch
+branches, such as `feat/ttsim-profiler`, are frozen records of the first
+versions and do not follow later changes.
 
 ## Syncing with upstream
 
@@ -42,7 +63,8 @@ release; cherry-pick individual upstream fixes when a full upgrade is not needed
 
 1. Run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`. It creates a
    `chore/sync-*` candidate and merges the upstream tag without rewriting any
-   integration or patch branch. It does not build locally or push anything.
+   integration or patch branch. A nightly candidate first takes stable's fork
+   infrastructure. The script does not build locally or push anything.
 2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
    and remove fork code that upstream now provides. Push the candidate for
    `fork-checks`, review it, and fast-forward its target branch with
@@ -65,7 +87,7 @@ times.
 Each fork workflow serves one purpose, and their files match
 `.github/workflows/fork-*.yaml`.
 
-```
+```text
 fork-checks    push              checks -- disable-upstream (stable, nightly)
 
 fork-release   started by hand   checks ---------+
@@ -78,8 +100,9 @@ fork-notify    release published, or started by hand with a tag
 ```
 
 - `checks` runs `just ci`, which also lints the fork workflows and the
-  `fork-*.sh` scripts. `fork-release` runs it again, because the push may
-  have run no checks.
+  `fork-*.sh` scripts, and on nightly compares the fork infrastructure with
+  stable's. `fork-release` runs it again, because the push may have run no
+  checks.
 - `disable-upstream` disables every workflow outside the fork's; see below.
 - `version` names the next `conda.N` on the upstream tag, counting drafts. It
   and `build` fetch upstream's tags on the branch's history from tenstorrent,
