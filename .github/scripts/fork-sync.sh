@@ -21,7 +21,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 git fetch -q upstream tag "$new"
 git fetch -q origin "$track"
-old=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' "origin/$track")
+old=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "origin/$track")
 if ! git merge-base --is-ancestor "$old" "$new"; then
     echo "$new is not a forward upgrade from $old" >&2
     exit 1

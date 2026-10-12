@@ -63,8 +63,9 @@ jobs:
       - run: .github/scripts/fork-upstream-tags.sh
       - id: version
         run: |
-          # --exclude skips the fork's own release tags.
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*')
+          # --exclude skips the fork's release tags and upstream's release
+          # candidates, as in `just wheel`.
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
           case "$GITHUB_REF_NAME" in
             stable) pattern='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
             nightly) pattern='^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$' ;;

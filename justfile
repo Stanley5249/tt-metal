@@ -96,8 +96,9 @@ trace script *args: fetch-ttsim
 [script]
 wheel label="":
     # Stable tags stay unchanged; nightly tags become PEP 440 dev versions.
-    # Fork release tags must not become the upstream base.
-    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*')
+    # Fork release tags must not become the upstream base, nor upstream's
+    # release candidates, which can share a commit with the release.
+    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
     version="${tag#v}"
     version="${version/-dev/.dev}"
     if [ -n "{{ label }}" ]; then

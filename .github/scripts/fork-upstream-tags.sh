@@ -5,11 +5,12 @@
 set -euo pipefail
 
 upstream=https://github.com/tenstorrent/tt-metal.git
-# Annotated tags list their commit on a peeled `^{}` line.
+# Annotated tags list their commit on a peeled `^{}` line. Only releases and
+# nightlies can be a base; a release candidate can share a release's commit.
 mapfile -t refspecs < <(
     awk -F'\t' '
         NR == FNR { history[$1]; next }
-        $2 ~ /\^\{\}$/ && $1 in history {
+        $2 ~ /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+(-dev[0-9]+)?\^\{\}$/ && $1 in history {
             sub(/\^\{\}$/, "", $2)
             print $2 ":" $2
         }
