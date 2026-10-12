@@ -1,6 +1,7 @@
 # git-cliff notes for a fork release: one line on the upstream tag it builds
-# on, then the fork's own commits since that tag, or since the last release on
-# it. The fork-release workflow passes that range and sets UPSTREAM_BASE.
+# on, then the fork's own commits since that tag that no earlier fork release
+# listed. The fork-release workflow passes the range, the tags to skip, and
+# UPSTREAM_BASE and PREVIOUS_RELEASE.
 
 [changelog]
 body = """
@@ -30,8 +31,10 @@ Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/release
         {{ self::print_commit(commit=commit) }}
     {%- endfor %}
 {% endfor %}
-{% if previous.version %}\
-    **Full Changelog**: [{{ previous.version }}...{{ version }}]({{ self::remote_url() }}/compare/{{ previous.version }}...{{ version }})
+{#- Skipped tags leave no previous version, so the workflow names it. -#}
+{% set previous_release = get_env(name="PREVIOUS_RELEASE", default="") -%}
+{% if previous_release %}\
+    **Full Changelog**: [{{ previous_release }}...{{ version }}]({{ self::remote_url() }}/compare/{{ previous_release }}...{{ version }})
 {% endif %}
 """
 trim = true

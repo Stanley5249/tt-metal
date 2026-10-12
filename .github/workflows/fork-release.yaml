@@ -51,7 +51,9 @@ jobs:
       contents: write
     outputs:
       base: ${{ steps.version.outputs.base }}
-      since: ${{ steps.version.outputs.since }}
+      base-commit: ${{ steps.version.outputs.base-commit }}
+      previous: ${{ steps.version.outputs.previous }}
+      skip-tags: ${{ steps.version.outputs.skip-tags }}
       label: ${{ steps.version.outputs.label }}
       tag: ${{ steps.version.outputs.tag }}
     env:
@@ -81,29 +83,27 @@ jobs:
             exit 1
           fi
           # git-cliff ignores --tag on a commit that already has a release tag.
-          released=$(git tag --points-at HEAD --list 'v*-conda.*')
-          if [ "$RELEASE" = true ] && [ -n "$released" ]; then
-            echo "::error::HEAD is already released as $released"
+          head_release=$(git tag --points-at HEAD --list 'v*-conda.*')
+          if [ "$RELEASE" = true ] && [ -n "$head_release" ]; then
+            echo "::error::HEAD is already released as $head_release"
             exit 1
           fi
           # conda.N counts releases on one upstream tag, drafts included.
           n=$(gh release list -L 1000 --json tagName -q '.[].tagName' |
             sed -n "s/^${base//./\\.}-conda\.\([0-9]*\)$/\1/p" | sort -n | tail -1)
           label="conda.$((${n:-0} + 1))"
-          # Notes start at the last published release on this base, if HEAD
-          # has one, else at the base. git-cliff's --unreleased would ignore
-          # the range and reach back to the previous base. The notes job
-          # gets a commit, because it does not fetch upstream tags.
-          since=$base
-          for t in $(git tag --list "$base-conda.*" --sort=-version:refname); do
-            if git merge-base --is-ancestor "$t" HEAD; then
-              since=$t
-              break
-            fi
-          done
+          # Notes cover HEAD's commits since the upstream base, minus those of
+          # earlier fork releases. After a sync those releases sit on the old
+          # base, inside the range, so git-cliff skips their tags by name.
+          # The notes job gets the base as a commit, since it fetches no
+          # upstream tags.
+          released=$(git tag --merged HEAD --list 'v*-conda.*' | sed 's/\./\\./g' | paste -sd'|')
+          previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' 2>/dev/null || true)
           {
             echo "base=$base"
-            echo "since=$(git rev-parse "$since^{commit}")"
+            echo "base-commit=$(git rev-parse "$base^{commit}")"
+            echo "previous=$previous"
+            echo "skip-tags=^($released)\$"
             echo "label=$label"
             echo "tag=$base-$label"
           } >> "$GITHUB_OUTPUT"
@@ -231,10 +231,12 @@ jobs:
       - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: .github/cliff.toml
-          args: --offline --tag ${{ needs.version.outputs.tag }} ${{ needs.version.outputs.since }}..HEAD
+          args: --offline --tag ${{ needs.version.outputs.tag }} ${{ needs.version.outputs.base-commit }}..HEAD
         env:
           OUTPUT: release-notes.md
+          GIT_CLIFF_SKIP_TAGS: ${{ needs.version.outputs.skip-tags }}
           UPSTREAM_BASE: ${{ needs.version.outputs.base }}
+          PREVIOUS_RELEASE: ${{ needs.version.outputs.previous }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: notes
