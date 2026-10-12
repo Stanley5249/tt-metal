@@ -45,8 +45,12 @@ release; cherry-pick individual upstream fixes when a full upgrade is not needed
    integration or patch branch. It does not build locally or push anything.
 2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
    and remove fork code that upstream now provides. Push the candidate for
-   fast CI checks, then review and merge it into its target branch.
-3. Run the fork workflow by hand on that integration branch for the full build,
+   `fork-checks`, review it, and fast-forward its target branch with
+   `git push origin chore/sync-<track>-<tag>:<track>`. A pull request would
+   add a second merge commit and could start upstream's new workflows; see
+   Workflows. The upstream tag stays on tenstorrent, and the workflows fetch
+   it from there.
+3. Run `fork-release` by hand on that integration branch for the full build,
    clean-wheel simulator tests and Tracy capture checks. Do not draft a release
    until they pass; `release` drafts one after the same checks pass again.
 4. Review the draft and publish it separately, only after approval. Nightly
@@ -58,20 +62,28 @@ times.
 
 ## Workflows
 
-`.github/workflows/fork.yaml` is the fork's only workflow.
+Each fork workflow serves one purpose, and their files match
+`.github/workflows/fork-*.yaml`.
 
 ```
-push to stable/nightly   checks ── disable-upstream
+fork-checks    push              checks -- disable-upstream (stable, nightly)
 
-started by hand       checks ───────┐
-                      version ──┬───┴── build ── smoke [wh, bh] ──┬── release
-                                └── notes ────────────────────────┘
-                                (notes and release only with `release`)
+fork-release   started by hand   checks ---------+
+                                 version --+-----+-- build -- smoke [wh, bh] --+-- release
+                                           +-- notes --------------------------+
+                                 (notes and release only with `release`)
+
+fork-notify    release published, or started by hand with a tag
+                                 notify-tracer
 ```
 
-- `checks` runs `just ci` and lints the workflow and the `fork-*.sh` scripts.
-- `disable-upstream` disables every other workflow; see below.
-- `version` names the next `conda.N` on the upstream tag, counting drafts.
+- `checks` runs `just ci`, which also lints the fork workflows and the
+  `fork-*.sh` scripts. `fork-release` runs it again, because the push may
+  have run no checks.
+- `disable-upstream` disables every workflow outside the fork's; see below.
+- `version` names the next `conda.N` on the upstream tag, counting drafts. It
+  and `build` fetch upstream's tags on the branch's history from tenstorrent,
+  because pushes to the fork carry none.
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
 - `smoke` installs the wheel in the pixi `wheel` environment, which has no
@@ -82,8 +94,9 @@ started by hand       checks ───────┐
 - `notify-tracer` sends a published release tag to `tt-vllm-tracer`, which tests
   the dependency update and opens a PR to the matching stable or nightly track.
   Drafts never notify tracer. `TRACER_DISPATCH_TOKEN` is an Actions secret scoped
-  to tracer's Contents write permission. Use the manual `notify_release` input
-  to retry a notification without rebuilding or publishing anything.
+  to tracer's Contents write permission, and only `fork-notify` reads it. Start
+  `fork-notify` by hand to retry a notification without rebuilding or
+  publishing anything.
 
 Upstream's workflows stay in the tree, unchanged, and are disabled in the
 repository's Actions settings; `disable-upstream` catches the ones a sync adds.
@@ -97,7 +110,7 @@ requests inside the fork. For the same reason, the fork has no Dependabot.
 ## Side effects
 
 What the `just` recipes write and how long they take. The `justfile` and the
-fork workflow stay the source of truth; this section explains them.
+fork workflows stay the source of truth; this section explains them.
 
 Times start without a build tree, on two machines. `local` is an Intel Core
 Ultra 9 185H under WSL 2 with 26 GB given to WSL and `TT_BUILD_JOBS=10`.
@@ -127,7 +140,7 @@ Sizes are from `local`.
 | `build/profiler/build_wasm/traces/`      | `just trace`                     | each capture's `.tracy`, small                                                |
 | `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | the release assets and the wheel's build files, 0.4 GB                        |
 | `localhost:8080`, `:8081`                | `just trace`                     | tt-metal's WASM viewer server for this tree, until `pkill -f serve_wasm.py`   |
-| GitHub Actions cache                     | the fork workflow                | the pixi environment, and ccache with CPM per build, restored by upstream tag |
+| GitHub Actions cache                     | the fork workflows               | the pixi environment, and ccache with CPM per build, restored by upstream tag |
 
 ## Compared with upstream wheels
 

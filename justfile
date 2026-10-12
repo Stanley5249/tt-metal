@@ -136,10 +136,13 @@ fmt:
     pixi run -e ci tombi format pixi.toml
     just --fmt
 
-# Verify formatting and pixi.lock without rewriting sources
+# Verify formatting, pixi.lock, and the fork workflows without rewriting sources
 [group("verify")]
 ci:
     pixi lock --check --dry-run
     pixi run -e ci tombi format --check pixi.toml
     pixi run -e ci tombi lint pixi.toml
     just --fmt --check
+    pixi run -e ci actionlint .github/workflows/fork-*.yaml
+    pixi run -e ci zizmor --offline .github/workflows/fork-*.yaml
+    pixi run -e ci shellcheck .github/scripts/fork-*.sh

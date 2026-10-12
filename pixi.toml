@@ -73,8 +73,8 @@ just = "*"
 tombi = "*"
 # `just wheel` packages the build with uv build.
 uv = "*"
-# The fork workflow lints itself: actionlint checks it and, through shellcheck,
-# its run: scripts; zizmor audits its security.
+# `just ci` lints the fork workflows: actionlint checks them and, through
+# shellcheck, their run: scripts; zizmor audits their security.
 actionlint = "*"
 shellcheck = "*"
 zizmor = "*"
