@@ -190,11 +190,14 @@ class EditableWheel(editable_wheel):
         # Build the editable wheel first.
         super().run()
 
-        # Create a .pth file with paths to the repo root, ttnn and tools directories.
+        # Create a .pth file with paths to the repo root, ttnn, tools and tt-llk/tools/python directories.
         # This file gets loaded automatically by the python interpreter and its content gets populated into `sys.path`;
         # i.e. as if these paths were added to the PYTHONPATH.
         pth_filename = "ttnn-custom.pth"
-        pth_content = f"{Path(__file__).parent}\n{Path(__file__).parent / 'ttnn'}\n{Path(__file__).parent / 'tools'}\n"
+        pth_content = (
+            f"{Path(__file__).parent}\n{Path(__file__).parent / 'ttnn'}\n{Path(__file__).parent / 'tools'}\n"
+            f"{Path(__file__).parent / 'tt_metal' / 'tt-llk' / 'tools' / 'python'}\n"
+        )
 
         print(f"EditableWheel.run: adding {pth_filename} to the wheel")
 
@@ -378,7 +381,6 @@ class CMakeBuild(build_ext):
             "api/tt-metalium/constants.hpp",
             "api/tt-metalium/dev_msgs.h",
             "api/tt-metalium/experimental/fabric/fabric_edm_types.hpp",
-            "fabric/fabric_edm_packet_header.hpp",
             "api/tt-metalium/experimental/fabric/edm_fabric_counters.hpp",
             "core_descriptors/*.yaml",
             "fabric/hw/**/*",
@@ -461,6 +463,8 @@ packages += [
     for name in find_namespace_packages("models", exclude=["*.tests", "*.tests.*"])
     if any(name == root or name.startswith(f"{root}.") for root in models_roots)
 ]
+# Shared perf counter package owned by tt-llk (header parsers + metric engine), imported by tracy.
+packages += ["tt_llk_perf"]
 
 # Empty sources in order to force extension executions
 ttnn_lib_C = Extension("ttnn._ttnn", sources=[])
@@ -483,6 +487,7 @@ setup(
         "tracy": "tools/tracy",
         "triage": "tools/triage",
         "models": "models",
+        "tt_llk_perf": "tt_metal/tt-llk/tools/python/tt_llk_perf",
     },
     package_data={
         "models": ["**/*.json", "**/*.yaml"],
