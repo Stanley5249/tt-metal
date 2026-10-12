@@ -9,31 +9,52 @@ needs no sudo. Its releases ship a ttnn wheel and the Tracy tools.
 
 ## Branches
 
-`stable` is the default development branch, based on an upstream release tag.
-`nightly` tests the fork's patches against selected upstream nightly tags.
-Release tags preserve exact versions; integration branches move forward without
-rewriting published history. The fork has no `main`; see Workflows.
+`stable` is the default branch, based on an upstream release tag. `nightly`
+carries the same fork on a selected upstream nightly tag. Upstream releases
+come from their own line, so `v0.79.0` is not an ancestor of later nightlies,
+and neither branch merges into the other. Release tags preserve exact
+versions; both branches move forward without rewriting published history. The
+fork has no `main`; see Workflows.
 
-New `feat/*` and `fix/*` branches start from their target integration branch.
-Merge normal development into `stable`, then cherry-pick relevant commits onto
-a task branch for `nightly`. Do not merge the whole nightly branch into stable.
-The existing branches below preserve the original upstream-facing patches;
-porting them does not rebase or rewrite those branches.
+```text
+upstream releases -- v0.79.0 ---------------------------- v0.80.0
+                        \                                    \
+stable                   M -- infra change -- source patch -- M
+                                   |                |
+                              copy |                | cherry-pick
+                                   v                v
+nightly            M ------- infra snapshot -- source patch ----- M
+                  /                                              /
+upstream main -- v0.80.0-dev20261002 ----------------- v0.81.0-dev20261011
+```
 
-| Branch                    | Change                                            | Category | Upstream     |
-| ------------------------- | ------------------------------------------------- | -------- | ------------ |
-| `feat/ttsim-host-tensors` | build tensors on the host under ttsim             | Feature  | not proposed |
-| `feat/ttsim-profiler`     | device profiler on ttsim's clock                  | Feature  | not proposed |
-| `fix/device-marker-order` | skip unpaired device markers instead of aborting  | Bug fix  | not proposed |
-| `feat/sfpi-root-override` | `TT_METAL_SFPI_ROOT` for the kernel JIT           | Feature  | not proposed |
-| `feat/wheel-models`       | ship tt_transformers' `models/` in the ttnn wheel | Feature  | not proposed |
-| `feat/pixi`               | pixi workspace and conda clang toolchain          | Feature  | not proposed |
-| `feat/justfile`           | build, ttsim, and release recipes                 | Feature  | not proposed |
-| `fix/wheel-ttsim-version` | ship the ttsim version pin in the ttnn wheel      | Bug fix  | not proposed |
-| `feat/wheel-sfpi`         | bundle the SFPI kernel compiler in the ttnn wheel | Feature  | not proposed |
+All development starts from `stable` in a `feat/*`, `fix/*`, or `ci/*` branch
+and merges there first. Nightly takes it in one of two ways:
 
-`feat/wheel-models` serves vLLM on ttsim rather than Tracy, and
-`feat/justfile` builds on `feat/pixi`.
+- Fork infrastructure, the paths that `.github/fork-infra` lists, has no
+  upstream counterpart and stays identical on both branches. Run
+  `.github/scripts/fork-infra.sh copy` on a task branch from nightly to take
+  stable's copy as one commit. `fork-checks` fails on nightly when the two
+  differ.
+- Source patches change upstream files, so cherry-pick each onto a task branch
+  from nightly, and adapt it there when nightly's upstream has moved.
+
+The source patches, none of them proposed upstream:
+
+| Patch                                             | Upstream files                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| build tensors on the host under ttsim             | `ttnn/core/tensor/py_to_tt_tensor.cpp`                                   |
+| device profiler on ttsim's clock                  | `tt_metal/impl/profiler/`, `tt_metal/tools/profiler/kernel_profiler.hpp` |
+| skip unpaired device markers instead of aborting  | `tt_metal/impl/profiler/profiler.cpp`                                    |
+| `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                                           |
+| ship tt_transformers' `models/` in the ttnn wheel | `setup.py`, `models/tt_transformers/tt/model_config.py`                  |
+| ship the ttsim version pin in the ttnn wheel      | `setup.py`                                                               |
+| bundle the SFPI kernel compiler in the ttnn wheel | `setup.py`, `tt_metal/sfpi-licenses/`                                    |
+| build in a pixi environment                       | `.gitattributes`, `.gitignore`                                           |
+
+The `models/` patch serves vLLM on ttsim rather than Tracy. Older patch
+branches, such as `feat/ttsim-profiler`, are frozen records of the first
+versions and do not follow later changes.
 
 ## Syncing with upstream
 
@@ -42,11 +63,16 @@ release; cherry-pick individual upstream fixes when a full upgrade is not needed
 
 1. Run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`. It creates a
    `chore/sync-*` candidate and merges the upstream tag without rewriting any
-   integration or patch branch. It does not build locally or push anything.
+   integration or patch branch. A nightly candidate first takes stable's fork
+   infrastructure. The script does not build locally or push anything.
 2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
    and remove fork code that upstream now provides. Push the candidate for
-   fast CI checks, then review and merge it into its target branch.
-3. Run the fork workflow by hand on that integration branch for the full build,
+   `fork-checks`, review it, and fast-forward its target branch with
+   `git push origin chore/sync-<track>-<tag>:<track>`. A pull request would
+   add a second merge commit and could start upstream's new workflows; see
+   Workflows. The upstream tag stays on tenstorrent, and the workflows fetch
+   it from there.
+3. Run `fork-release` by hand on that integration branch for the full build,
    clean-wheel simulator tests and Tracy capture checks. Do not draft a release
    until they pass; `release` drafts one after the same checks pass again.
 4. Review the draft and publish it separately, only after approval. Nightly
@@ -58,20 +84,29 @@ times.
 
 ## Workflows
 
-`.github/workflows/fork.yaml` is the fork's only workflow.
+Each fork workflow serves one purpose, and their files match
+`.github/workflows/fork-*.yaml`.
 
+```text
+fork-checks    push              checks -- disable-upstream (stable, nightly)
+
+fork-release   started by hand   checks ---------+
+                                 version --+-----+-- build -- smoke [wh, bh] --+-- release
+                                           +-- notes --------------------------+
+                                 (notes and release only with `release`)
+
+fork-notify    release published, or started by hand with a tag
+                                 notify-tracer
 ```
-push to stable/nightly   checks ── disable-upstream
 
-started by hand       checks ───────┐
-                      version ──┬───┴── build ── smoke [wh, bh] ──┬── release
-                                └── notes ────────────────────────┘
-                                (notes and release only with `release`)
-```
-
-- `checks` runs `just ci` and lints the workflow and the `fork-*.sh` scripts.
-- `disable-upstream` disables every other workflow; see below.
-- `version` names the next `conda.N` on the upstream tag, counting drafts.
+- `checks` runs `just ci`, which also lints the fork workflows and the
+  `fork-*.sh` scripts, and on nightly compares the fork infrastructure with
+  stable's. `fork-release` runs it again, because the push may have run no
+  checks.
+- `disable-upstream` disables every workflow outside the fork's; see below.
+- `version` names the next `conda.N` on the upstream tag, counting drafts. It
+  and `build` fetch upstream's tags on the branch's history from tenstorrent,
+  because pushes to the fork carry none.
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
 - `smoke` installs the wheel in the pixi `wheel` environment, which has no
@@ -82,8 +117,9 @@ started by hand       checks ───────┐
 - `notify-tracer` sends a published release tag to `tt-vllm-tracer`, which tests
   the dependency update and opens a PR to the matching stable or nightly track.
   Drafts never notify tracer. `TRACER_DISPATCH_TOKEN` is an Actions secret scoped
-  to tracer's Contents write permission. Use the manual `notify_release` input
-  to retry a notification without rebuilding or publishing anything.
+  to tracer's Contents write permission, and only `fork-notify` reads it. Start
+  `fork-notify` by hand to retry a notification without rebuilding or
+  publishing anything.
 
 Upstream's workflows stay in the tree, unchanged, and are disabled in the
 repository's Actions settings; `disable-upstream` catches the ones a sync adds.
@@ -97,7 +133,7 @@ requests inside the fork. For the same reason, the fork has no Dependabot.
 ## Side effects
 
 What the `just` recipes write and how long they take. The `justfile` and the
-fork workflow stay the source of truth; this section explains them.
+fork workflows stay the source of truth; this section explains them.
 
 Times start without a build tree, on two machines. `local` is an Intel Core
 Ultra 9 185H under WSL 2 with 26 GB given to WSL and `TT_BUILD_JOBS=10`.
@@ -127,7 +163,7 @@ Sizes are from `local`.
 | `build/profiler/build_wasm/traces/`      | `just trace`                     | each capture's `.tracy`, small                                                |
 | `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | the release assets and the wheel's build files, 0.4 GB                        |
 | `localhost:8080`, `:8081`                | `just trace`                     | tt-metal's WASM viewer server for this tree, until `pkill -f serve_wasm.py`   |
-| GitHub Actions cache                     | the fork workflow                | the pixi environment, and ccache with CPM per build, restored by upstream tag |
+| GitHub Actions cache                     | the fork workflows               | the pixi environment, and ccache with CPM per build, restored by upstream tag |
 
 ## Compared with upstream wheels
 

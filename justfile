@@ -96,8 +96,9 @@ trace script *args: fetch-ttsim
 [script]
 wheel label="":
     # Stable tags stay unchanged; nightly tags become PEP 440 dev versions.
-    # Fork release tags must not become the upstream base.
-    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*')
+    # Fork release tags must not become the upstream base, nor upstream's
+    # release candidates, which can share a commit with the release.
+    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
     version="${tag#v}"
     version="${version/-dev/.dev}"
     if [ -n "{{ label }}" ]; then
@@ -136,10 +137,13 @@ fmt:
     pixi run -e ci tombi format pixi.toml
     just --fmt
 
-# Verify formatting and pixi.lock without rewriting sources
+# Verify formatting, pixi.lock, and the fork workflows without rewriting sources
 [group("verify")]
 ci:
     pixi lock --check --dry-run
     pixi run -e ci tombi format --check pixi.toml
     pixi run -e ci tombi lint pixi.toml
     just --fmt --check
+    pixi run -e ci actionlint .github/workflows/fork-*.yaml
+    pixi run -e ci zizmor --offline .github/workflows/fork-*.yaml
+    pixi run -e ci shellcheck .github/scripts/fork-*.sh

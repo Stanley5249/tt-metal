@@ -1,0 +1,12 @@
+# Fork infrastructure: files upstream does not have, identical on stable and
+# nightly. fork-infra.sh copies them from stable and checks nightly against
+# stable. Each line is a git pathspec.
+FORK.md
+justfile
+pixi.toml
+pixi.lock
+cmake/x86_64-linux-clang-20-conda-toolchain.cmake
+.github/fork-infra
+.github/cliff.toml
+:(glob).github/scripts/fork*
+:(glob).github/workflows/fork*.yaml

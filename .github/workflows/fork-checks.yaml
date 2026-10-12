@@ -1,0 +1,57 @@
+# Checks every push to the fork's branches. On stable and nightly it also
+# disables upstream's workflows. FORK.md explains the fork workflows.
+name: fork-checks
+
+on:
+  push:
+    branches: [stable, nightly, "feat/**", "fix/**", "ci/**", "chore/sync-*"]
+
+permissions: {}
+
+# A new push replaces checks still running.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          cache: true
+          cache-write: ${{ github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly' }}
+          environments: ci
+          activate-environment: true
+      - run: just ci
+      # Nightly keeps stable's fork infrastructure; FORK.md explains why.
+      - if: github.ref == 'refs/heads/nightly'
+        run: |
+          git fetch -q --no-tags --depth=1 origin stable:refs/remotes/origin/stable
+          .github/scripts/fork-infra.sh check
+
+  # Upstream's workflows stay in the tree but must not run here; a sync adds
+  # new ones, which start out active. After checks, GitHub has registered them.
+  disable-upstream:
+    if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          gh workflow list --all -L 500 --json path,state \
+            -q '.[] | select(.state == "active" and (.path | startswith(".github/workflows/fork-") | not)) | .path' |
+            xargs -rn1 gh workflow disable

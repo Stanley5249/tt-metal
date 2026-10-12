@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prepare an upstream upgrade without rewriting integration or patch branches.
 # Usage: fork-sync.sh <stable|nightly> <upstream tag>
+# A nightly candidate first takes stable's fork infrastructure as one commit.
 # Resolve conflicts and run CI before merging the candidate into its target.
 set -euo pipefail
 
@@ -20,14 +21,19 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 git fetch -q upstream tag "$new"
-git fetch -q origin "$track"
-old=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' "origin/$track")
+git fetch -q origin stable "$track"
+old=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "origin/$track")
 if ! git merge-base --is-ancestor "$old" "$new"; then
     echo "$new is not a forward upgrade from $old" >&2
     exit 1
 fi
 candidate="chore/sync-$track-$new"
 git switch -c "$candidate" "origin/$track"
+if [ "$track" = nightly ]; then
+    # Stable's own script, since nightly's copy may be older. Upstream has
+    # none of these files, so the merge cannot conflict with them.
+    bash <(git show origin/stable:.github/scripts/fork-infra.sh) copy origin/stable
+fi
 git merge --no-ff --no-edit "$new"
-echo "Review $candidate, resolve compatibility issues, then merge into $track."
-echo "Run the fork workflow on $track before drafting a release."
+echo "Review $candidate, resolve compatibility issues, then fast-forward $track to it."
+echo "Run fork-release on $track before drafting a release."
