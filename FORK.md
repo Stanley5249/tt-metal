@@ -26,8 +26,8 @@ nightly            M ------- infra snapshot -- source patch ----- M
 upstream main -- v0.80.0-dev20261002 ----------------- v0.81.0-dev20261011
 ```
 
-Develop on a `feat/*`, `fix/*`, or `ci/*` branch from stable and integrate there
-first. Propagate changes to nightly in two ways:
+Develop on a `feat/*`, `fix/*`, `refactor/*`, or `ci/*` branch from stable and
+integrate there first. Propagate changes to nightly in two ways:
 
 - Infrastructure paths in `.github/fork-infra` stay identical on both tracks.
   On a task branch from nightly, run `.github/scripts/fork-infra.sh copy` to
@@ -117,16 +117,23 @@ and Dependabot off to avoid inherited triggers.
 
 ## Side effects
 
-The `justfile` and workflows own commands and cache settings. Use Actions logs
-for current timings rather than fixed machine-specific measurements.
+Sizes are from one local build. A cold `just build` takes about 32 min locally
+and 47 min on a runner; with a warm ccache the runner compiles in about 4 min.
 
-- Environments and builds write `.pixi/envs/`, `build_Release/`, its `build`
-  symlink, and `runtime/`. Packaging writes `dist/` and `build_wheel/`.
-- Downloads and caches use `sim/`, `~/.cache/cpm/`, and `~/.cache/ccache/`.
-  Tests and traces write `generated/` and `~/.cache/tt-metal-cache/`.
-- Tracy captures live under `build/profiler/build_wasm/traces/`. The viewer
-  serves on ports 8080 and 8081 until stopped with `pkill -f serve_wasm.py`.
-- Actions saves pixi environments, ccache with CPM sources, and test artifacts.
+| Path                                     | Written by                       | Size   |
+| ---------------------------------------- | -------------------------------- | ------ |
+| `.pixi/envs/`                            | any recipe                       | 2.9 GB |
+| `build_Release/`, `build` linking to it  | `just build`                     | 2.3 GB |
+| `runtime/`                               | `just build`                     | 0.4 GB |
+| `~/.cache/cpm/`                          | `just build`                     | 4.0 GB |
+| `~/.cache/ccache/`                       | `just build`                     | 0.6 GB |
+| `sim/`                                   | `just fetch-ttsim`               | < 1 MB |
+| `generated/`, `~/.cache/tt-metal-cache/` | `just test`, `just trace`        | 2 GB   |
+| `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | 0.4 GB |
+
+Tracy captures go to `build/profiler/build_wasm/traces/`. The viewer serves on
+ports 8080 and 8081 until `pkill -f serve_wasm.py`. Actions caches the pixi
+environments and ccache with CPM sources.
 
 ## Compared with upstream wheels
 
