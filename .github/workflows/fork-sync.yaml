@@ -24,7 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        track: ${{ fromJSON(inputs.track == 'stable' && '["stable"]' || inputs.track == 'nightly' && '["nightly"]' || '["stable", "nightly"]') }}
+        # Scheduled runs have no inputs, so an empty track means both.
+        track: ${{ fromJSON((inputs.track || 'both') == 'both' && '["stable", "nightly"]' || format('["{0}"]', inputs.track)) }}
     uses: ./.github/workflows/fork-update.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: write

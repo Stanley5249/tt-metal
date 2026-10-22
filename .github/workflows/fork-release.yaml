@@ -81,7 +81,8 @@ jobs:
           fi
           # conda.N counts releases on one upstream tag, drafts included.
           n=$(gh release list -L 1000 --json tagName -q '.[].tagName' |
-            sed -n "s/^${base//./\\.}-conda\.\([0-9]*\)$/\1/p" | sort -n | tail -1)
+            awk -F'-conda[.]' -v base="$base" '$1 == base && $2 ~ /^[0-9]+$/ {print $2}' |
+            sort -n | tail -1)
           label="conda.$((${n:-0} + 1))"
           # Notes cover HEAD's commits since the upstream base, minus those of
           # earlier fork releases. After a sync those releases sit on the old

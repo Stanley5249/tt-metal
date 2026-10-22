@@ -43,27 +43,30 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "remote", "add", "origin", str(self.origin))
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
         self.write(self.work, ".github/fork-infra", "fork.txt\n")
-        self.write(self.work, ".github/scripts/fork-infra.sh", (SCRIPTS / "fork-infra.sh").read_text())
-        self.write(self.work, ".github/scripts/fork-upstream-tags.sh", (SCRIPTS / "fork-upstream-tags.sh").read_text())
-        self.write(self.work, ".github/scripts/fork-version.sh", (SCRIPTS / "fork-version.sh").read_text())
+        for script in ["fork-infra.sh", "fork-select-tag.sh", "fork-upstream-tags.sh", "fork-version.sh"]:
+            self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
         self.write(self.work, "fork.txt", "infrastructure\n")
         self.commit(self.work, "fork infrastructure")
-        infrastructure = self.git(self.work, "rev-parse", "HEAD").stdout.strip()
+        infrastructure = self.head()
         self.git(self.work, "switch", "-q", "-c", "nightly", "v1.1.0-dev20260101")
         self.git(self.work, "cherry-pick", infrastructure)
         self.git(self.work, "switch", "-q", "stable")
         self.git(self.work, "push", "-q", "origin", "stable", "nightly")
 
-    def git(self, cwd, *args, check=True):
-        return subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            env=self.env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=check,
+    def call(self, cmd, cwd=None, env=None, success=True):
+        """Run cmd and return its stdout with stderr appended."""
+        result = subprocess.run(
+            cmd, cwd=cwd or self.work, env=env or self.env, text=True, capture_output=True, check=False
         )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode == 0, success, output)
+        return output
+
+    def git(self, cwd, *args):
+        return self.call(["git", *args], cwd=cwd)
+
+    def head(self):
+        return self.git(self.work, "rev-parse", "HEAD").strip()
 
     def write(self, repo, path, content):
         target = repo / path
@@ -82,32 +85,17 @@ class ForkSyncTests(unittest.TestCase):
 
     def sync(self, track="stable", tag="v1.0.1", success=True):
         (self.root / "output").write_text("")
-        result = subprocess.run(
-            ["bash", str(SCRIPTS / "fork-sync.sh"), track, tag],
-            cwd=self.work,
-            env=self.env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
-        self.assertEqual(result.returncode == 0, success, result.stdout)
-        return result.stdout
+        return self.call(["bash", str(SCRIPTS / "fork-sync.sh"), track, tag], success=success)
 
-    def version(self, track="stable", ref="HEAD", label="", success=True):
-        result = subprocess.run(
-            ["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label],
-            cwd=self.work,
-            env=self.env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode == 0, success, result.stderr)
-        if success:
-            return dict(line.split("=", 1) for line in result.stdout.splitlines())
-        self.assertEqual(result.stdout, "")
-        return result.stderr
+    def version(self, track="stable", ref="HEAD", label=""):
+        output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label])
+        return dict(line.split("=", 1) for line in output.splitlines())
+
+    def version_error(self, track="stable", ref="HEAD", label=""):
+        output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label], success=False)
+        # A failed run must not leave Actions outputs behind.
+        self.assertNotIn("base=", output)
+        return output
 
     def test_stable_version_excludes_fork_and_rc_tags(self):
         self.git(self.work, "tag", "v1.0.0-conda.9")
@@ -115,7 +103,7 @@ class ForkSyncTests(unittest.TestCase):
         metadata = self.version(label="conda.test")
         self.assertEqual(metadata["base"], "v1.0.0")
         self.assertEqual(metadata["version"], "1.0.0+conda.test")
-        self.assertEqual(metadata["base-commit"], self.git(self.work, "rev-parse", "v1.0.0^{commit}").stdout.strip())
+        self.assertEqual(metadata["base-commit"], self.git(self.work, "rev-parse", "v1.0.0^{commit}").strip())
         self.assertEqual(self.version("auto")["version"], "1.0.0")
         self.assertEqual(self.version(label="Conda_RC-1")["version"], "1.0.0+Conda_RC-1")
 
@@ -124,26 +112,26 @@ class ForkSyncTests(unittest.TestCase):
         self.assertEqual(metadata["base"], "v1.1.0-dev20260101")
         self.assertEqual(metadata["version"], "1.1.0.dev20260101+conda.2")
         self.assertEqual(self.version("auto", "origin/nightly")["version"], "1.1.0.dev20260101")
-        self.assertIn("cannot build", self.version("stable", "origin/nightly", success=False))
-        self.assertIn("cannot build", self.version("nightly", success=False))
+        self.assertIn("cannot build", self.version_error("stable", "origin/nightly"))
+        self.assertIn("cannot build", self.version_error("nightly"))
 
     def test_invalid_version_inputs(self):
-        self.version("invalid", success=False)
-        self.version(ref="missing-ref", success=False)
+        self.version_error("invalid")
+        self.version_error(ref="missing-ref")
         for label in ["../bad", "conda.1\nbase=injected", "conda.", "conda..1"]:
             with self.subTest(label=label):
-                self.version(label=label, success=False)
+                self.version_error(label=label)
 
     def test_forward_update_and_local_retry(self):
         self.advance()
         self.sync()
-        sha = self.git(self.work, "rev-parse", "HEAD").stdout
+        sha = self.head()
         self.assertEqual((self.work / "tt_metal/ttsim-version").read_text(), "new-upstream-ttsim\n")
         self.sync()
-        self.assertEqual(self.git(self.work, "rev-parse", "HEAD").stdout, sha)
+        self.assertEqual(self.head(), sha)
         self.assertIn("changed=true", (self.root / "output").read_text())
         self.assertEqual(
-            self.git(self.work, "rev-parse", "origin/stable").stdout, self.git(self.work, "rev-parse", "stable").stdout
+            self.git(self.work, "rev-parse", "origin/stable"), self.git(self.work, "rev-parse", "stable")
         )
 
     def test_clone_without_upstream_tags(self):
@@ -156,12 +144,12 @@ class ForkSyncTests(unittest.TestCase):
         self.advance()
         self.sync()
         candidate = "chore/sync-stable-v1.0.1"
-        sha = self.git(self.work, "rev-parse", "HEAD").stdout
+        sha = self.head()
         self.git(self.work, "push", "-q", "origin", candidate)
         self.git(self.work, "switch", "-q", "stable")
         self.git(self.work, "branch", "-D", candidate)
         self.sync()
-        self.assertEqual(self.git(self.work, "rev-parse", "HEAD").stdout, sha)
+        self.assertEqual(self.head(), sha)
 
     def test_already_integrated(self):
         self.advance()
@@ -183,7 +171,7 @@ class ForkSyncTests(unittest.TestCase):
         self.advance()
         self.assertIn("Resolve conflicts", self.sync(success=False))
         self.git(self.work, "rev-parse", "--verify", "MERGE_HEAD")
-        self.assertIn("source.txt", self.git(self.work, "diff", "--name-only", "--diff-filter=U").stdout)
+        self.assertIn("source.txt", self.git(self.work, "diff", "--name-only", "--diff-filter=U"))
         self.write(self.work, "source.txt", "resolved patch\n")
         self.commit(self.work, "resolve merge")
         self.sync()
@@ -216,14 +204,8 @@ class ForkSyncTests(unittest.TestCase):
         ]:
             with self.subTest(track=track):
                 env = self.env | {"PATH": f"{binary}:{self.env['PATH']}", "TEST_RELEASES": releases}
-                result = subprocess.run(
-                    ["bash", str(SCRIPTS / "fork-select-tag.sh"), track],
-                    env=env,
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                )
-                self.assertEqual(result.stdout.strip(), expected)
+                output = self.call(["bash", str(SCRIPTS / "fork-select-tag.sh"), track], env=env)
+                self.assertEqual(output.strip(), expected)
 
     def test_upstream_dependency_pins_are_required(self):
         self.write(self.work, "tt_metal/sfpi-version", "fork override\n")

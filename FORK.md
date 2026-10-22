@@ -50,16 +50,16 @@ The fork's source patches, all maintained here:
 ## Syncing with upstream
 
 `fork-sync` prepares and fully validates candidates on a schedule or by hand.
-Its workflow owns the schedule and inputs. Stable selects a published release;
-nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins.
+Stable selects a published release; nightly selects a published nightly tag.
+SFPI and ttsim follow that tag's pins.
 Runs with no upstream update skip building and compiler cache access.
 
 1. Review the candidate and exact commit in the Actions summary. Retire source
    patches when that track's upstream provides equivalent behavior.
 2. For conflicts, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`
    locally, resolve and commit the merge, then rerun the command. It preserves
-   source edits, aligns submodules, and reuses complete candidates. Commit or
-   stash user edits first. Push the result and restart `fork-sync` for that
+   source edits, aligns submodules, and resumes an existing candidate branch.
+   Commit or stash user edits first. Push the result and restart `fork-sync` for that
    track and tag to validate on GitHub Actions.
 3. After validation and approval, run
    `git push origin <validated-sha>:refs/heads/<track>`. Check that validation
@@ -90,29 +90,30 @@ fork-validate  reusable         checks + metadata -- build -- smoke [wh, bh]
 fork-notify    published/manual  notify-tracer
 ```
 
-- `fork-checks` runs `just ci`, including lightweight Git tests. After
-  integration checks it disables upstream workflows, including newly added ones.
+- `fork-checks` runs `just ci`, which includes `fork-sync-test.py`. On nightly
+  it also runs `fork-infra.sh check`. On stable and nightly it then disables
+  upstream workflows, including newly added ones.
 - `fork-update` prepares and pushes candidates with Contents write permission,
   then explicitly calls validation because token pushes may skip push workflows.
   Conflicts appear in the Actions summary and preparation log.
 - `fork-validate` checks pins and nightly infrastructure, then builds and tests
   the clean wheel on both simulator architectures, including Tracy and device
   profiling. Build jobs use Contents read permission and save ccache on failure.
-- `.github/scripts/fork-version.sh` owns upstream base validation and wheel
-  version conversion for sync, validation, release, and local packaging. CI
-  fetches upstream tags from tenstorrent because fork pushes carry none.
+- `fork-select-tag.sh` owns the track tag patterns, and `fork-version.sh` owns
+  the upstream base and wheel version. CI fetches upstream tags from
+  tenstorrent because fork pushes carry none.
 - `fork-release` counts drafts when choosing `conda.N`. Release notes use
   git-cliff and `.github/cliff.toml`; only matching integration branches can
   draft releases after validation.
-- `fork-notify` sends published tags to `tt-vllm-tracer`; its `sync-metal`
-  workflow owns dependency PRs. Only `fork-notify` reads `TRACER_DISPATCH_TOKEN`,
-  scoped to tracer's Contents write permission.
-  Dispatch with a tag to retry notification without rebuilding.
+- `fork-notify` dispatches `tt-metal-released` to `tt-vllm-tracer`, whose
+  `sync-metal` workflow opens the dependency PR. Only `fork-notify` reads
+  `TRACER_DISPATCH_TOKEN`, scoped to tracer's Contents write permission.
+  Dispatch it with a tag to retry without rebuilding.
 
-Keep upstream workflows in the tree but disabled in Actions. Use candidate
-branches instead of internal PRs, and keep `main` absent, issues off, and
-Dependabot off to avoid inherited triggers. Upstream schedules otherwise
-queue for Tenstorrent's self-hosted runners on this fork.
+Upstream workflows stay in the tree, and `disable-upstream` keeps them off,
+because their schedules would queue for Tenstorrent's self-hosted runners. Use
+candidate branches instead of internal PRs, and keep `main` absent, issues off,
+and Dependabot off to avoid inherited triggers.
 
 ## Side effects
 
@@ -143,7 +144,7 @@ The fork's toolchain and runtime dependencies are defined in `pixi.toml`.
 
 ## Releases
 
-Tags use `<upstream-tag>-conda.N`; wheels use the same rebuild count as a
-PEP 440 local version. `fork-version.sh` owns the conversion. The
+Tags use `<upstream-tag>-conda.N`, and the wheel version follows the table
+above. The
 [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) project's
 `pyproject.toml` and `docs/env-vars.md` describe consuming the release wheel.
