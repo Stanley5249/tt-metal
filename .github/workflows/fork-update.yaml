@@ -1,0 +1,104 @@
+# One track's update transaction. Scheduled runs leave integration branches alone.
+name: fork-update
+
+on:
+  workflow_call:
+    inputs:
+      track:
+        required: true
+        type: string
+      tag:
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fork-update-${{ inputs.track }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.prepare.outputs.changed }}
+      candidate: ${{ steps.prepare.outputs.candidate }}
+      sha: ${{ steps.prepare.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TRACK: ${{ inputs.track }}
+      REQUESTED_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - id: tag
+        run: |
+          tag=$REQUESTED_TAG
+          if [ -z "$tag" ]; then
+            tag=$(bash .github/scripts/fork-select-tag.sh "$TRACK")
+          fi
+          # Validate before writing to an Actions output or using a git ref.
+          case "$TRACK" in
+            stable) pattern='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
+            nightly) pattern='^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$' ;;
+            *) exit 1 ;;
+          esac
+          [[ "$tag" =~ $pattern ]] || { echo "::error::Invalid upstream tag"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - id: prepare
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Credentials are used only by preparation, never by builds.
+          gh auth setup-git
+          git remote add upstream https://github.com/tenstorrent/tt-metal.git
+          # Run the checked-out coordinator even when the candidate changes HEAD.
+          script=$(mktemp)
+          cp .github/scripts/fork-sync.sh "$script"
+          bash "$script" "$TRACK" "$TAG"
+      - if: steps.prepare.outputs.changed == 'true'
+        env:
+          CANDIDATE: ${{ steps.prepare.outputs.candidate }}
+          SHA: ${{ steps.prepare.outputs.sha }}
+        run: |
+          git push origin "$SHA:refs/heads/$CANDIDATE"
+      - if: always()
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          CANDIDATE: ${{ steps.prepare.outputs.candidate }}
+          SHA: ${{ steps.prepare.outputs.sha }}
+          CHANGED: ${{ steps.prepare.outputs.changed }}
+        run: |
+          {
+            echo "## Upstream update: $TRACK"
+            echo "- Tag: $TAG"
+            echo "- Candidate: $CANDIDATE"
+            echo "- Commit: $SHA"
+            echo "- Update needed: $CHANGED"
+            if [ "$CHANGED" = true ]; then
+              echo "- SFPI: $(git show HEAD:tt_metal/sfpi-version | head -n 1)"
+              echo "- ttsim: $(git show HEAD:tt_metal/ttsim-version)"
+            fi
+            echo "Integration branches remain unchanged. Promote only this exact commit after validation succeeds."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if git rev-parse --verify -q MERGE_HEAD > /dev/null; then
+            git diff --name-only --diff-filter=U >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    uses: ./.github/workflows/fork-validate.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
+    permissions:
+      contents: read
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      track: ${{ inputs.track }}

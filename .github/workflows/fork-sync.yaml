@@ -1,0 +1,33 @@
+# Runs from stable, the default branch. Updates are validated, then reviewed.
+name: fork-sync
+
+on:
+  schedule:
+    # Monday 10:23 in Taiwan. GitHub schedules use UTC.
+    - cron: "23 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Track to prepare and validate"
+        type: choice
+        options: [both, stable, nightly]
+        default: both
+      tag:
+        description: "Exact upstream tag, or empty for latest; select one track when setting a tag"
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  update:
+    strategy:
+      fail-fast: false
+      matrix:
+        track: ${{ fromJSON(inputs.track == 'stable' && '["stable"]' || inputs.track == 'nightly' && '["nightly"]' || '["stable", "nightly"]') }}
+    uses: ./.github/workflows/fork-update.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
+    permissions:
+      contents: write
+    with:
+      track: ${{ matrix.track }}
+      tag: ${{ inputs.tag || '' }}
