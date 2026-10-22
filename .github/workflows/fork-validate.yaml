@@ -70,6 +70,9 @@ jobs:
           # These dependencies belong to upstream, including on a patched candidate.
           git diff --exit-code "$base" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
           printf '%s\n' "$metadata" >> "$GITHUB_OUTPUT"
+          # Promotion compares this commit with the one it fast-forwards to.
+          version=$(printf '%s\n' "$metadata" | awk -F= '$1 == "version" {print $2}')
+          echo "Validating $(git rev-parse HEAD) on $TRACK as ttnn $version" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: [checks, metadata]
