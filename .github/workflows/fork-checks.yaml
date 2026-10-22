@@ -4,7 +4,7 @@ name: fork-checks
 
 on:
   push:
-    branches: [stable, nightly, "feat/**", "fix/**", "ci/**", "chore/sync-*"]
+    branches: [stable, nightly, "feat/**", "fix/**", "refactor/**", "ci/**", "chore/sync-*"]
 
 permissions: {}
 
