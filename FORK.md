@@ -16,6 +16,12 @@ and neither branch merges into the other. Release tags preserve exact
 versions; both branches move forward without rewriting published history. The
 fork has no `main`; see Workflows.
 
+Each upstream upgrade uses a merge commit to preserve upstream ancestry and
+conflict resolutions. After validation, fast-forward the integration branch to
+that exact candidate commit. Keep fork-owned changes focused, preferably one
+commit per change. Preserve published history with follow-up fixes. Stable's
+infrastructure reaches nightly as a snapshot; source patches are cherry-picked.
+
 ```text
 upstream releases -- v0.79.0 ---------------------------- v0.80.0
                         \                                    \

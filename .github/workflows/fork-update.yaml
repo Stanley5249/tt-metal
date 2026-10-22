@@ -88,6 +88,20 @@ jobs:
               echo "- ttsim: $(git show HEAD:tt_metal/ttsim-version)"
             fi
             echo "Integration branches remain unchanged. Promote only this exact commit after validation succeeds."
+            if [ "$CHANGED" = true ]; then
+              echo
+              echo "### Fork changes against the new upstream"
+              echo '```text'
+              git diff --stat "$TAG" "$SHA"
+              echo '```'
+              echo "Review separately:"
+              echo "- Fork patches: git diff $TAG $SHA"
+              echo "- Upstream changes: git diff $(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "origin/$TRACK") $TAG"
+              merge=$(git log --first-parent --merges -1 --format=%H "origin/$TRACK..$SHA")
+              if [ -n "$merge" ]; then
+                echo "- Conflict resolutions: git show --remerge-diff $merge"
+              fi
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           if git rev-parse --verify -q MERGE_HEAD > /dev/null; then
             git diff --name-only --diff-filter=U >> "$GITHUB_STEP_SUMMARY"
