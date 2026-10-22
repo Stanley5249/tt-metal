@@ -19,3 +19,7 @@ finally:
     ttnn.close_device(device)
 torch.testing.assert_close(out, a + a)
 print("ttnn.add matches torch on ttsim")
+
+# tt-vllm-tracer imports tt_transformers through models.common, which needs
+# every package the wheel ships beside ttnn.
+import models.common.utility_functions  # noqa: E402, F401

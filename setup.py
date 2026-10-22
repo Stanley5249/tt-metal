@@ -461,6 +461,8 @@ packages += [
     for name in find_namespace_packages("models", exclude=["*.tests", "*.tests.*"])
     if any(name == root or name.startswith(f"{root}.") for root in models_roots)
 ]
+# models.common re-exports this top-level package since v0.80.0.
+packages += find_packages(include=["tt_py_test_utils_common", "tt_py_test_utils_common.*"])
 
 # Empty sources in order to force extension executions
 ttnn_lib_C = Extension("ttnn._ttnn", sources=[])
@@ -483,6 +485,7 @@ setup(
         "tracy": "tools/tracy",
         "triage": "tools/triage",
         "models": "models",
+        "tt_py_test_utils_common": "tt_py_test_utils_common",
     },
     package_data={
         "models": ["**/*.json", "**/*.yaml"],
