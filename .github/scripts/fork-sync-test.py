@@ -34,18 +34,24 @@ class ForkSyncTests(unittest.TestCase):
         self.write(self.upstream, "tt_metal/ttsim-version", "upstream-ttsim\n")
         self.commit(self.upstream, "base")
         self.git(self.upstream, "tag", "v1.0.0")
+        self.write(self.upstream, "nightly.txt", "nightly base\n")
+        self.commit(self.upstream, "nightly base")
         self.git(self.upstream, "tag", "v1.1.0-dev20260101")
         self.git(self.root, "init", "-q", "--bare", str(self.origin))
         self.git(self.root, "clone", "-q", str(self.upstream), str(self.work))
         self.git(self.work, "remote", "rename", "origin", "upstream")
         self.git(self.work, "remote", "add", "origin", str(self.origin))
-        self.git(self.work, "switch", "-q", "-c", "stable")
+        self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
         self.write(self.work, ".github/fork-infra", "fork.txt\n")
         self.write(self.work, ".github/scripts/fork-infra.sh", (SCRIPTS / "fork-infra.sh").read_text())
         self.write(self.work, ".github/scripts/fork-upstream-tags.sh", (SCRIPTS / "fork-upstream-tags.sh").read_text())
+        self.write(self.work, ".github/scripts/fork-version.sh", (SCRIPTS / "fork-version.sh").read_text())
         self.write(self.work, "fork.txt", "infrastructure\n")
         self.commit(self.work, "fork infrastructure")
-        self.git(self.work, "branch", "nightly")
+        infrastructure = self.git(self.work, "rev-parse", "HEAD").stdout.strip()
+        self.git(self.work, "switch", "-q", "-c", "nightly", "v1.1.0-dev20260101")
+        self.git(self.work, "cherry-pick", infrastructure)
+        self.git(self.work, "switch", "-q", "stable")
         self.git(self.work, "push", "-q", "origin", "stable", "nightly")
 
     def git(self, cwd, *args, check=True):
@@ -87,6 +93,46 @@ class ForkSyncTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode == 0, success, result.stdout)
         return result.stdout
+
+    def version(self, track="stable", ref="HEAD", label="", success=True):
+        result = subprocess.run(
+            ["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label],
+            cwd=self.work,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode == 0, success, result.stderr)
+        if success:
+            return dict(line.split("=", 1) for line in result.stdout.splitlines())
+        self.assertEqual(result.stdout, "")
+        return result.stderr
+
+    def test_stable_version_excludes_fork_and_rc_tags(self):
+        self.git(self.work, "tag", "v1.0.0-conda.9")
+        self.git(self.work, "tag", "v1.0.1-rc1")
+        metadata = self.version(label="conda.test")
+        self.assertEqual(metadata["base"], "v1.0.0")
+        self.assertEqual(metadata["version"], "1.0.0+conda.test")
+        self.assertEqual(metadata["base-commit"], self.git(self.work, "rev-parse", "v1.0.0^{commit}").stdout.strip())
+        self.assertEqual(self.version("auto")["version"], "1.0.0")
+        self.assertEqual(self.version(label="Conda_RC-1")["version"], "1.0.0+Conda_RC-1")
+
+    def test_nightly_version_and_track_guard(self):
+        metadata = self.version("nightly", "origin/nightly", "conda.2")
+        self.assertEqual(metadata["base"], "v1.1.0-dev20260101")
+        self.assertEqual(metadata["version"], "1.1.0.dev20260101+conda.2")
+        self.assertEqual(self.version("auto", "origin/nightly")["version"], "1.1.0.dev20260101")
+        self.assertIn("cannot build", self.version("stable", "origin/nightly", success=False))
+        self.assertIn("cannot build", self.version("nightly", success=False))
+
+    def test_invalid_version_inputs(self):
+        self.version("invalid", success=False)
+        self.version(ref="missing-ref", success=False)
+        for label in ["../bad", "conda.1\nbase=injected", "conda.", "conda..1"]:
+            with self.subTest(label=label):
+                self.version(label=label, success=False)
 
     def test_forward_update_and_local_retry(self):
         self.advance()

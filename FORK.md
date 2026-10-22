@@ -67,6 +67,8 @@ and an optional exact tag. Its workflow owns the schedule and input defaults.
 Stable selects a published release; nightly selects a published nightly tag.
 Both prepare and fully validate a candidate while leaving the integration
 branches unchanged. SFPI and ttsim use the selected upstream tag's pins.
+A run with no upstream update skips the build, so it also skips compiler cache
+access. The cache strategy stays the same.
 
 1. Review the candidate and exact commit in the Actions summary. A nightly
    candidate first takes stable's fork infrastructure. Review upstream changes
@@ -85,7 +87,9 @@ branches unchanged. SFPI and ttsim use the selected upstream tag's pins.
    after approval. Nightly drafts are marked as prereleases.
 
 For build-only validation of a task branch, start `fork-release` on that branch
-with its matching `track` and `release` disabled. Full builds and simulator tests
+with its matching `track` and `release` disabled. Build-only runs use
+`conda.test` and Contents read permission. Release numbering and write access
+belong to release preparation and drafting. Full builds and simulator tests
 run on GitHub Actions; local preparation and `just ci` stay lightweight.
 Upstream tags stay on tenstorrent, and the workflows fetch them from there.
 
@@ -101,12 +105,12 @@ Each fork workflow serves one purpose, and their files match
 ```text
 fork-checks    push              checks -- disable-upstream (stable, nightly)
 
-fork-sync      weekly / manual  fork-update [stable, nightly]
+fork-sync      schedule/manual  fork-update [stable, nightly]
                                   prepare -- fork-validate
 
-fork-release   manual           version -- fork-validate -- release
+fork-release   manual           fork-validate (build-only)
+                                version -- fork-validate -- release (draft)
                                        +-- notes -----------+
-                                (notes and release only with `release`)
 
 fork-validate  reusable         checks + metadata -- build -- smoke [wh, bh]
 
@@ -121,10 +125,12 @@ fork-notify    release published, or started by hand with a tag
   this job has Contents write access in the sync pipeline. Token pushes may
   skip push workflows, so validation is called explicitly. Repeated runs reuse
   the candidate; conflicts fail with paths in the Actions summary.
-- `version` names the next `conda.N`, counting drafts. The shared validator's
-  `metadata` checks the upstream base and dependency pins, then supplies an
-  explicit Python version before editable installation. Both fetch upstream
-  tags because pushes to the fork carry none.
+- `version` runs only when drafting a release and names the next `conda.N`,
+  counting drafts. `.github/scripts/fork-version.sh` owns upstream base
+  validation and wheel version conversion for sync, validation, release, and
+  local packaging. The shared validator's `metadata` also checks dependency
+  pins and supplies the package version before editable installation. CI fetches
+  upstream tags because pushes to the fork carry none.
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
 - `smoke` installs the wheel in the pixi `wheel` environment, which has no
