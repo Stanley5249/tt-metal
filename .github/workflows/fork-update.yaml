@@ -25,7 +25,6 @@ jobs:
       contents: write
     outputs:
       changed: ${{ steps.prepare.outputs.changed }}
-      candidate: ${{ steps.prepare.outputs.candidate }}
       sha: ${{ steps.prepare.outputs.sha }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -84,17 +83,8 @@ jobs:
             echo "- Candidate: $CANDIDATE"
             echo "- Commit: $SHA"
             echo "- Update needed: $CHANGED"
-            if [ "$CHANGED" = true ]; then
-              echo "- SFPI: $(git show HEAD:tt_metal/sfpi-version | head -n 1)"
-              echo "- ttsim: $(git show HEAD:tt_metal/ttsim-version)"
-            fi
             echo "Integration branches remain unchanged. Promote only this exact commit after validation succeeds."
             if [ "$CHANGED" = true ]; then
-              echo
-              echo "### Fork changes against the new upstream"
-              echo '```text'
-              git diff --stat "$TAG" "$SHA"
-              echo '```'
               echo "Review separately:"
               echo "- Fork patches: git diff $TAG $SHA"
               echo "- Upstream changes: git diff $PREVIOUS $TAG"

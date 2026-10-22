@@ -3,8 +3,8 @@ name: fork-sync
 
 on:
   schedule:
-    # Monday and Thursday 10:23 in Taiwan. GitHub schedules use UTC.
-    - cron: "23 2 * * 1,4"
+    # Monday and Thursday 05:23 in Taiwan. GitHub schedules use UTC.
+    - cron: "23 21 * * 0,3"
   workflow_dispatch:
     inputs:
       track:
