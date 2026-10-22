@@ -62,7 +62,7 @@ The `models/` patch serves vLLM on ttsim rather than Tracy.
 
 ## Syncing with upstream
 
-`fork-sync` checks both tracks weekly and can be started by hand for one track
+`fork-sync` checks both tracks twice weekly and can be started by hand for one track
 and an optional exact tag. Its workflow owns the schedule and input defaults.
 Stable selects a published release; nightly selects a published nightly tag.
 Both prepare and fully validate a candidate while leaving the integration
