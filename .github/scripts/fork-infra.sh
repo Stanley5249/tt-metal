@@ -9,7 +9,9 @@ usage="usage: fork-infra.sh <check|copy> [ref]"
 mode=${1:?$usage}
 ref=${2:-origin/stable}
 # The ref's list wins, so a path that stable adds reaches nightly too.
-mapfile -t paths < <(git show "$ref:.github/fork-infra" | sed -e 's/[[:space:]]*#.*//' -e '/^$/d')
+# Read the list first, since a failure inside process substitution goes unnoticed.
+list=$(git show "$ref:.github/fork-infra")
+mapfile -t paths < <(sed -e 's/[[:space:]]*#.*//' -e '/^$/d' <<< "$list")
 
 case "$mode" in
     check)

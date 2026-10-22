@@ -101,9 +101,9 @@ jobs:
           locked: true
           cache: true
           activate-environment: true
-      # Keyed per run and restored by upstream tag, then by any build, so a
-      # failed build still leaves its ccache for the next run. GitHub evicts
-      # the oldest entries past the repository's 10 GB.
+      # Keyed per run and restored by upstream tag, then by any build on the
+      # track, so a failed build still leaves its ccache for the next run.
+      # GitHub evicts the oldest entries past the repository's 10 GB.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

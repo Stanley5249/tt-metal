@@ -1,4 +1,5 @@
-# One track's update transaction. Scheduled runs leave integration branches alone.
+# One track's update transaction. It pushes only a candidate branch; integration
+# branches move only by manual promotion.
 name: fork-update
 
 on:
@@ -36,19 +37,10 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      # The script validates the tag before it reaches an output or a git ref.
       - id: tag
         run: |
-          tag=$REQUESTED_TAG
-          if [ -z "$tag" ]; then
-            tag=$(bash .github/scripts/fork-select-tag.sh "$TRACK")
-          fi
-          # Validate before writing to an Actions output or using a git ref.
-          case "$TRACK" in
-            stable) pattern='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
-            nightly) pattern='^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$' ;;
-            *) exit 1 ;;
-          esac
-          [[ "$tag" =~ $pattern ]] || { echo "::error::Invalid upstream tag"; exit 1; }
+          tag=$(bash .github/scripts/fork-select-tag.sh "$TRACK" "$REQUESTED_TAG")
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - id: prepare
         env:
@@ -60,9 +52,8 @@ jobs:
           gh auth setup-git
           git remote add upstream https://github.com/tenstorrent/tt-metal.git
           # Run the checked-out coordinator even when the candidate changes HEAD.
-          script=$(mktemp)
-          cp .github/scripts/fork-sync.sh "$script"
-          bash "$script" "$TRACK" "$TAG"
+          cp .github/scripts/fork-sync.sh "$RUNNER_TEMP/fork-sync.sh"
+          bash "$RUNNER_TEMP/fork-sync.sh" "$TRACK" "$TAG"
       - if: steps.prepare.outputs.changed == 'true'
         env:
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}

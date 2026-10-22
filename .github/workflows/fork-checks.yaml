@@ -1,5 +1,5 @@
-# Checks every push to the fork's branches. On stable and nightly it also
-# disables upstream's workflows. FORK.md explains the fork workflows.
+# Checks pushes to stable, nightly, and task branches. On stable and nightly it
+# also disables upstream's workflows. FORK.md explains the fork workflows.
 name: fork-checks
 
 on:
