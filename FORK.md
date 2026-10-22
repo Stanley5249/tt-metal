@@ -104,9 +104,9 @@ fork-notify    published/manual  notify-tracer
 - `fork-release` counts drafts when choosing `conda.N`. Release notes use
   git-cliff and `.github/cliff.toml`; only matching integration branches can
   draft releases after validation.
-- `fork-notify` sends published tags to `tt-vllm-tracer`, which tests the update
-  and opens a PR for its matching track. Only this workflow reads
-  `TRACER_DISPATCH_TOKEN`, scoped to tracer's Contents write permission.
+- `fork-notify` sends published tags to `tt-vllm-tracer`; its `sync-metal`
+  workflow owns dependency PRs. Only `fork-notify` reads `TRACER_DISPATCH_TOKEN`,
+  scoped to tracer's Contents write permission.
   Dispatch with a tag to retry notification without rebuilding.
 
 Keep upstream workflows in the tree but disabled in Actions. Use candidate
