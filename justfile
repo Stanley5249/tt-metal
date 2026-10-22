@@ -95,15 +95,8 @@ trace script *args: fetch-ttsim
 [group("release")]
 [script]
 wheel label="":
-    # Stable tags stay unchanged; nightly tags become PEP 440 dev versions.
-    # Fork release tags must not become the upstream base, nor upstream's
-    # release candidates, which can share a commit with the release.
-    tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
-    version="${tag#v}"
-    version="${version/-dev/.dev}"
-    if [ -n "{{ label }}" ]; then
-        version="$version+{{ label }}"
-    fi
+    metadata=$(bash .github/scripts/fork-version.sh auto HEAD "{{ label }}")
+    version=$(printf '%s\n' "$metadata" | awk -F= '$1 == "version" {print $2}')
     # One wheel in dist/, so a release picks the right one.
     rm -rf "{{ wheel_work }}" "{{ dist_dir }}"/ttnn-*.whl
     mkdir -p "{{ dist_dir }}" "{{ wheel_work }}"

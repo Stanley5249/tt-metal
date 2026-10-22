@@ -76,6 +76,7 @@ jobs:
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
           SHA: ${{ steps.prepare.outputs.sha }}
           CHANGED: ${{ steps.prepare.outputs.changed }}
+          PREVIOUS: ${{ steps.prepare.outputs.previous }}
         run: |
           {
             echo "## Upstream update: $TRACK"
@@ -96,7 +97,7 @@ jobs:
               echo '```'
               echo "Review separately:"
               echo "- Fork patches: git diff $TAG $SHA"
-              echo "- Upstream changes: git diff $(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "origin/$TRACK") $TAG"
+              echo "- Upstream changes: git diff $PREVIOUS $TAG"
               merge=$(git log --first-parent --merges -1 --format=%H "origin/$TRACK..$SHA")
               if [ -n "$merge" ]; then
                 echo "- Conflict resolutions: git show --remerge-diff $merge"

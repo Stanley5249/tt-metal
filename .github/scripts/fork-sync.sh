@@ -28,7 +28,8 @@ git fetch -q --no-tags upstream tag "$new"
 git fetch -q --no-tags origin "stable:refs/remotes/origin/stable" "$track:refs/remotes/origin/$track"
 # Fork clones carry only fork release tags. Discover upstream bases first.
 bash .github/scripts/fork-upstream-tags.sh "origin/$track"
-old=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "origin/$track")
+metadata=$(bash .github/scripts/fork-version.sh "$track" "origin/$track")
+old=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
 if ! git merge-base --is-ancestor "$old" "$new"; then
     echo "$new is not a forward upgrade from $old" >&2
     exit 1
@@ -86,6 +87,7 @@ sha=$(git rev-parse HEAD)
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
     {
         echo "changed=true"
+        echo "previous=$old"
         echo "candidate=$candidate"
         echo "sha=$sha"
     } >> "$GITHUB_OUTPUT"

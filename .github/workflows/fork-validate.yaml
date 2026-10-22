@@ -65,19 +65,11 @@ jobs:
           TRACK: ${{ inputs.track }}
           LABEL: ${{ inputs.label }}
         run: |
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
-          case "$TRACK" in
-            stable) pattern='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
-            nightly) pattern='^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$' ;;
-            *) echo "::error::Expected stable or nightly"; exit 1 ;;
-          esac
-          [[ "$base" =~ $pattern ]] || { echo "::error::$TRACK cannot build on $base"; exit 1; }
+          metadata=$(bash .github/scripts/fork-version.sh "$TRACK" HEAD "$LABEL")
+          base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # These dependencies belong to upstream, including on a patched candidate.
           git diff --exit-code "$base" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
-          version=${base#v}
-          version=${version/-dev/.dev}
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "version=$version+$LABEL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$metadata" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [checks, metadata]

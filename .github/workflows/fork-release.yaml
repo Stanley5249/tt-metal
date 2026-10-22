@@ -26,23 +26,26 @@ concurrency:
 jobs:
   validate:
     needs: version
+    # A skipped release-numbering job still permits read-only validation.
+    if: ${{ !cancelled() && (!inputs.release || needs.version.result == 'success') }}
     uses: ./.github/workflows/fork-validate.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: read
     with:
       ref: ${{ github.sha }}
       track: ${{ github.ref_name == 'nightly' && 'nightly' || inputs.track }}
-      label: ${{ needs.version.outputs.label }}
+      label: ${{ needs.version.outputs.label || 'conda.test' }}
 
   version:
+    if: inputs.release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Only push access lists draft releases, whose tags do not exist yet.
     permissions:
       contents: write
     outputs:
-      base: ${{ steps.version.outputs.base }}
-      base-commit: ${{ steps.version.outputs.base-commit }}
+      base: ${{ steps.base.outputs.base }}
+      base-commit: ${{ steps.base.outputs.base-commit }}
       previous: ${{ steps.version.outputs.previous }}
       skip-tags: ${{ steps.version.outputs.skip-tags }}
       label: ${{ steps.version.outputs.label }}
@@ -50,7 +53,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE: ${{ inputs.release }}
       TRACK: ${{ github.ref_name == 'nightly' && 'nightly' || inputs.track }}
     steps:
       # Full history without blobs, so git describe finds the upstream tag.
@@ -60,27 +62,20 @@ jobs:
           filter: blob:none
           persist-credentials: false
       - run: .github/scripts/fork-upstream-tags.sh
+      - id: base
+        run: bash .github/scripts/fork-version.sh "$TRACK" >> "$GITHUB_OUTPUT"
       - id: version
+        env:
+          BASE: ${{ steps.base.outputs.base }}
         run: |
-          # --exclude skips the fork's release tags and upstream's release
-          # candidates, as in `just wheel`.
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*')
-          if [ "$RELEASE" = true ] && { [[ "$GITHUB_REF_NAME" != stable && "$GITHUB_REF_NAME" != nightly ]] || [ "$TRACK" != "$GITHUB_REF_NAME" ]; }; then
+          base=$BASE
+          if [[ "$GITHUB_REF_NAME" != stable && "$GITHUB_REF_NAME" != nightly ]] || [ "$TRACK" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Draft releases only on their matching integration branch"
-            exit 1
-          fi
-          case "$TRACK" in
-            stable) pattern='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
-            nightly) pattern='^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$' ;;
-            *) echo "::error::Expected stable or nightly"; exit 1 ;;
-          esac
-          if [[ ! "$base" =~ $pattern ]]; then
-            echo "::error::$TRACK cannot build on upstream $base"
             exit 1
           fi
           # git-cliff ignores --tag on a commit that already has a release tag.
           head_release=$(git tag --points-at HEAD --list 'v*-conda.*')
-          if [ "$RELEASE" = true ] && [ -n "$head_release" ]; then
+          if [ -n "$head_release" ]; then
             echo "::error::HEAD is already released as $head_release"
             exit 1
           fi
@@ -96,8 +91,6 @@ jobs:
           released=$(git tag --merged HEAD --list 'v*-conda.*' | sed 's/\./\\./g' | paste -sd'|')
           previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' 2>/dev/null || true)
           {
-            echo "base=$base"
-            echo "base-commit=$(git rev-parse "$base^{commit}")"
             echo "previous=$previous"
             echo "skip-tags=^($released)\$"
             echo "label=$label"
