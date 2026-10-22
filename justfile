@@ -147,3 +147,4 @@ ci:
     pixi run -e ci actionlint .github/workflows/fork-*.yaml
     pixi run -e ci zizmor --offline .github/workflows/fork-*.yaml
     pixi run -e ci shellcheck .github/scripts/fork-*.sh
+    pixi run -e ci uv run --no-project python .github/scripts/fork-sync-test.py

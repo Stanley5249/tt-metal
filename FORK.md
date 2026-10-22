@@ -16,6 +16,12 @@ and neither branch merges into the other. Release tags preserve exact
 versions; both branches move forward without rewriting published history. The
 fork has no `main`; see Workflows.
 
+Each upstream upgrade uses a merge commit to preserve upstream ancestry and
+conflict resolutions. After validation, fast-forward the integration branch to
+that exact candidate commit. Keep fork-owned changes focused, preferably one
+commit per change. Preserve published history with follow-up fixes. Stable's
+infrastructure reaches nightly as a snapshot; source patches are cherry-picked.
+
 ```text
 upstream releases -- v0.79.0 ---------------------------- v0.80.0
                         \                                    \
@@ -56,25 +62,32 @@ The `models/` patch serves vLLM on ttsim rather than Tracy.
 
 ## Syncing with upstream
 
-Sync nightly on demand or weekly. Upgrade stable only to a selected upstream
-release; cherry-pick individual upstream fixes when a full upgrade is not needed.
+`fork-sync` checks both tracks weekly and can be started by hand for one track
+and an optional exact tag. Its workflow owns the schedule and input defaults.
+Stable selects a published release; nightly selects a published nightly tag.
+Both prepare and fully validate a candidate while leaving the integration
+branches unchanged. SFPI and ttsim use the selected upstream tag's pins.
 
-1. Run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`. It creates a
-   `chore/sync-*` candidate and merges the upstream tag without rewriting the
-   integration branch. A nightly candidate first takes stable's fork
-   infrastructure. The script does not build locally or push anything.
-2. Resolve conflicts, review dependencies, submodules, SFPI and ttsim pins,
-   and remove fork code that upstream now provides. Push the candidate for
-   `fork-checks`, review it, and fast-forward its target branch with
-   `git push origin chore/sync-<track>-<tag>:<track>`. A pull request would
-   add a second merge commit and could start upstream's new workflows; see
-   Workflows. The upstream tag stays on tenstorrent, and the workflows fetch
-   it from there.
-3. Run `fork-release` by hand on that integration branch for the full build,
-   clean-wheel simulator tests and Tracy capture checks. Do not draft a release
-   until they pass; `release` drafts one after the same checks pass again.
-4. Review the draft and publish it separately, only after approval. Nightly
-   drafts are marked as prereleases.
+1. Review the candidate and exact commit in the Actions summary. A nightly
+   candidate first takes stable's fork infrastructure. Review upstream changes
+   and remove fork code that upstream now provides.
+2. For a conflict, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`
+   locally, resolve and commit the merge, then rerun the command. It preserves
+   source edits, aligns submodules, and reuses complete candidates. Commit or
+   stash user edits before running it. Push the resolved candidate, then start
+   `fork-sync` for that track and tag to validate it on GitHub Actions.
+3. Once validation succeeds, approve and fast-forward the target using
+   `git push origin <validated-sha>:refs/heads/<track>`. Check that the summary
+   and successful validation identify the same commit. If the target has moved
+   and the push fails, prepare and validate a new candidate before retrying.
+4. Start `fork-release` on the integration branch with `release` enabled to
+   validate again and draft a release. Review and publish the draft separately,
+   after approval. Nightly drafts are marked as prereleases.
+
+For build-only validation of a task branch, start `fork-release` on that branch
+with its matching `track` and `release` disabled. Full builds and simulator tests
+run on GitHub Actions; local preparation and `just ci` stay lightweight.
+Upstream tags stay on tenstorrent, and the workflows fetch them from there.
 
 When upstream includes a patch, stop carrying its implementation on each track
 once that track reaches the upstream fix. The two tracks may drop it at different
@@ -88,30 +101,38 @@ Each fork workflow serves one purpose, and their files match
 ```text
 fork-checks    push              checks -- disable-upstream (stable, nightly)
 
-fork-release   started by hand   checks ---------+
-                                 version --+-----+-- build -- smoke [wh, bh] --+-- release
-                                           +-- notes --------------------------+
-                                 (notes and release only with `release`)
+fork-sync      weekly / manual  fork-update [stable, nightly]
+                                  prepare -- fork-validate
+
+fork-release   manual           version -- fork-validate -- release
+                                       +-- notes -----------+
+                                (notes and release only with `release`)
+
+fork-validate  reusable         checks + metadata -- build -- smoke [wh, bh]
 
 fork-notify    release published, or started by hand with a tag
                                  notify-tracer
 ```
 
-- `checks` runs `just ci`, which also lints the fork workflows and the
-  `fork-*.sh` scripts, and on nightly compares the fork infrastructure with
-  stable's. `fork-release` runs it again, because the push may have run no
-  checks.
+- `checks` runs `just ci`, including lightweight Git fixture tests. The shared
+  validator also compares nightly candidates' fork infrastructure with stable.
 - `disable-upstream` disables every workflow outside the fork's; see below.
-- `version` names the next `conda.N` on the upstream tag, counting drafts. It
-  and `build` fetch upstream's tags on the branch's history from tenstorrent,
-  because pushes to the fork carry none.
+- `prepare` selects a tag, runs `fork-sync.sh`, and pushes a candidate. Only
+  this job has Contents write access in the sync pipeline. Token pushes may
+  skip push workflows, so validation is called explicitly. Repeated runs reuse
+  the candidate; conflicts fail with paths in the Actions summary.
+- `version` names the next `conda.N`, counting drafts. The shared validator's
+  `metadata` checks the upstream base and dependency pins, then supplies an
+  explicit Python version before editable installation. Both fetch upstream
+  tags because pushes to the fork carry none.
 - `build` runs `just build`, `just wheel`, and `just tracy-tools`, with no
   write access, and saves its ccache even when it fails.
 - `smoke` installs the wheel in the pixi `wheel` environment, which has no
   editable ttnn, runs one op on both simulator architectures, and verifies Tracy
   capture and device profiler artifacts using the shipped tools.
 - `notes` runs git-cliff with `.github/cliff.toml`, and `release` drafts the
-  release; it is the only job that writes to this repository.
+  release after shared validation. Drafting is restricted to matching
+  integration branches.
 - `notify-tracer` sends a published release tag to `tt-vllm-tracer`, which tests
   the dependency update and opens a PR to the matching stable or nightly track.
   Drafts never notify tracer. `TRACER_DISPATCH_TOKEN` is an Actions secret scoped
@@ -135,8 +156,8 @@ fork workflows stay the source of truth; this section explains them.
 
 Times start without a build tree, on two machines. `local` is an Intel Core
 Ultra 9 185H under WSL 2 with 26 GB given to WSL and `TT_BUILD_JOBS=10`.
-`runner` is GitHub's `ubuntu-latest` with 4 vCPU, 16 GB, and the jobs that
-the build job sets.
+`runner` measurements below used GitHub's `ubuntu-latest` with 4 vCPU and
+16 GB. Fork workflows now pin `ubuntu-24.04`; the build job owns its job count.
 
 | Command                          | `local`                       | `runner`                                        |
 | -------------------------------- | ----------------------------- | ----------------------------------------------- |

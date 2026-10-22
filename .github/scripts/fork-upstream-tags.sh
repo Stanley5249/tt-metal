@@ -4,17 +4,19 @@
 # only tags on local commits downloads just the tag objects.
 set -euo pipefail
 
-upstream=https://github.com/tenstorrent/tt-metal.git
-# Annotated tags list their commit on a peeled `^{}` line. Only releases and
-# nightlies can be a base; a release candidate can share a release's commit.
+upstream=$(git remote get-url upstream 2>/dev/null || printf '%s' https://github.com/tenstorrent/tt-metal.git)
+history=${1:-HEAD}
+# Annotated tags use a peeled `^{}` line; lightweight tags point to a commit.
+# Only releases and nightlies can be a base; release candidates are excluded.
 mapfile -t refspecs < <(
     awk -F'\t' '
         NR == FNR { history[$1]; next }
-        $2 ~ /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+(-dev[0-9]+)?\^\{\}$/ && $1 in history {
+        $2 ~ /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+(-dev[0-9]+)?(\^\{\})?$/ && $1 in history {
             sub(/\^\{\}$/, "", $2)
-            print $2 ":" $2
+            refs[$2]
         }
-    ' <(git rev-list HEAD) <(git ls-remote --tags "$upstream" 'v*')
+        END { for (ref in refs) print ref ":" ref }
+    ' <(git rev-list "$history") <(git ls-remote --tags "$upstream" 'v*')
 )
 if [ "${#refspecs[@]}" -eq 0 ]; then
     echo "no upstream tag on HEAD's history" >&2
