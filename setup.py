@@ -465,6 +465,8 @@ packages += [
 ]
 # Shared perf counter package owned by tt-llk (header parsers + metric engine), imported by tracy.
 packages += ["tt_llk_perf"]
+# models.common re-exports this top-level package since v0.80.0.
+packages += find_packages(include=["tt_py_test_utils_common", "tt_py_test_utils_common.*"])
 
 # Empty sources in order to force extension executions
 ttnn_lib_C = Extension("ttnn._ttnn", sources=[])
@@ -488,6 +490,7 @@ setup(
         "triage": "tools/triage",
         "models": "models",
         "tt_llk_perf": "tt_metal/tt-llk/tools/python/tt_llk_perf",
+        "tt_py_test_utils_common": "tt_py_test_utils_common",
     },
     package_data={
         "models": ["**/*.json", "**/*.yaml"],
