@@ -20,7 +20,7 @@ if [ -n "$(git status --porcelain --ignore-submodules=all)" ]; then
     exit 1
 fi
 # shellcheck disable=SC2016 # Each submodule's shell expands the status command.
-git submodule foreach --quiet --recursive 'test -z "$(git status --porcelain)"' || {
+git submodule foreach --quiet --recursive 'test -z "$(git status --porcelain --ignore-submodules=all)"' || {
     echo "commit or stash your submodule changes first" >&2
     exit 1
 }
