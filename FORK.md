@@ -59,8 +59,8 @@ Runs with no upstream update skip building and compiler cache access.
 2. For conflicts, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`
    locally, resolve and commit the merge, then rerun the command. It preserves
    source edits, aligns submodules, and resumes an existing candidate branch.
-   Commit or stash user edits first. Push the result and restart `fork-sync` for that
-   track and tag to validate on GitHub Actions.
+   Commit or stash user edits first. Push the result and restart `fork-sync`
+   for that track and tag to validate on GitHub Actions.
 3. After validation and approval, run
    `git push origin <validated-sha>:refs/heads/<track>`. Check that validation
    identifies that exact commit. If the target moved and the push fails,
@@ -99,9 +99,9 @@ fork-notify    published/manual  notify-tracer
 - `fork-validate` checks pins and nightly infrastructure, then builds and tests
   the clean wheel on both simulator architectures, including Tracy and device
   profiling. Build jobs use Contents read permission and save ccache on failure.
-- `fork-select-tag.sh` owns the track tag patterns, and `fork-version.sh` owns
-  the upstream base and wheel version. CI fetches upstream tags from
-  tenstorrent because fork pushes carry none.
+- `fork-select-tag.sh` picks and validates a track's upstream tag.
+  `fork-version.sh` checks the upstream base and derives the wheel version. CI
+  fetches upstream tags from tenstorrent because fork pushes carry none.
 - `fork-release` counts drafts when choosing `conda.N`. Release notes use
   git-cliff and `.github/cliff.toml`; only matching integration branches can
   draft releases after validation.
@@ -144,7 +144,7 @@ The fork's toolchain and runtime dependencies are defined in `pixi.toml`.
 
 ## Releases
 
-Tags use `<upstream-tag>-conda.N`, and the wheel version follows the table
-above. The
+Tags use `<upstream-tag>-conda.N`. The wheel adds `+conda.N` as a PEP 440 local
+version and writes `-dev` as `.dev`. The
 [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) project's
 `pyproject.toml` and `docs/env-vars.md` describe consuming the release wheel.

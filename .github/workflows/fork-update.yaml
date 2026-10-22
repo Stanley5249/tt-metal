@@ -1,4 +1,5 @@
-# One track's update transaction. Scheduled runs leave integration branches alone.
+# One track's update transaction. It pushes only a candidate branch; integration
+# branches move only by manual promotion.
 name: fork-update
 
 on:

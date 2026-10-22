@@ -54,16 +54,14 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "push", "-q", "origin", "stable", "nightly")
 
     def call(self, cmd, cwd=None, env=None, success=True):
-        """Run cmd and return its stdout with stderr appended."""
         result = subprocess.run(
             cmd, cwd=cwd or self.work, env=env or self.env, text=True, capture_output=True, check=False
         )
-        output = result.stdout + result.stderr
-        self.assertEqual(result.returncode == 0, success, output)
-        return output
+        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        return result
 
     def git(self, cwd, *args):
-        return self.call(["git", *args], cwd=cwd)
+        return self.call(["git", *args], cwd=cwd).stdout
 
     def head(self):
         return self.git(self.work, "rev-parse", "HEAD").strip()
@@ -85,17 +83,18 @@ class ForkSyncTests(unittest.TestCase):
 
     def sync(self, track="stable", tag="v1.0.1", success=True):
         (self.root / "output").write_text("")
-        return self.call(["bash", str(SCRIPTS / "fork-sync.sh"), track, tag], success=success)
+        result = self.call(["bash", str(SCRIPTS / "fork-sync.sh"), track, tag], success=success)
+        return result.stdout + result.stderr
 
     def version(self, track="stable", ref="HEAD", label=""):
-        output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label])
+        output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label]).stdout
         return dict(line.split("=", 1) for line in output.splitlines())
 
     def version_error(self, track="stable", ref="HEAD", label=""):
-        output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label], success=False)
+        result = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label], success=False)
         # A failed run must not leave Actions outputs behind.
-        self.assertNotIn("base=", output)
-        return output
+        self.assertEqual(result.stdout, "")
+        return result.stderr
 
     def test_stable_version_excludes_fork_and_rc_tags(self):
         self.git(self.work, "tag", "v1.0.0-conda.9")
@@ -204,7 +203,7 @@ class ForkSyncTests(unittest.TestCase):
         ]:
             with self.subTest(track=track):
                 env = self.env | {"PATH": f"{binary}:{self.env['PATH']}", "TEST_RELEASES": releases}
-                output = self.call(["bash", str(SCRIPTS / "fork-select-tag.sh"), track], env=env)
+                output = self.call(["bash", str(SCRIPTS / "fork-select-tag.sh"), track], env=env).stdout
                 self.assertEqual(output.strip(), expected)
 
     def test_upstream_dependency_pins_are_required(self):

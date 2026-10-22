@@ -8,6 +8,8 @@ upstream=$(git remote get-url upstream 2>/dev/null || printf '%s' https://github
 history=${1:-HEAD}
 # Annotated tags use a peeled `^{}` line; lightweight tags point to a commit.
 # Only releases and nightlies can be a base; release candidates are excluded.
+# Read the remote first, since a failure inside process substitution goes unnoticed.
+remote_tags=$(git ls-remote --tags "$upstream" 'v*')
 mapfile -t refspecs < <(
     awk -F'\t' '
         NR == FNR { history[$1]; next }
@@ -16,7 +18,7 @@ mapfile -t refspecs < <(
             refs[$2]
         }
         END { for (ref in refs) print ref ":" ref }
-    ' <(git rev-list "$history") <(git ls-remote --tags "$upstream" 'v*')
+    ' <(git rev-list "$history") - <<< "$remote_tags"
 )
 if [ "${#refspecs[@]}" -eq 0 ]; then
     echo "no upstream tag on HEAD's history" >&2

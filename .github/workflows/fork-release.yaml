@@ -55,6 +55,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TRACK: ${{ github.ref_name == 'nightly' && 'nightly' || inputs.track }}
     steps:
+      # Fail before any checked-out code runs with the write token.
+      - run: |
+          if [ "$TRACK" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Draft releases only on their matching integration branch"
+            exit 1
+          fi
       # Full history without blobs, so git describe finds the upstream tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,15 +70,14 @@ jobs:
       - run: .github/scripts/fork-upstream-tags.sh
       - id: base
         run: bash .github/scripts/fork-version.sh "$TRACK" >> "$GITHUB_OUTPUT"
+      # bash, unlike the default shell, sets pipefail, so a failed release list
+      # stops the run instead of restarting the count at conda.1.
       - id: version
+        shell: bash
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
           base=$BASE
-          if [[ "$GITHUB_REF_NAME" != stable && "$GITHUB_REF_NAME" != nightly ]] || [ "$TRACK" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Draft releases only on their matching integration branch"
-            exit 1
-          fi
           # git-cliff ignores --tag on a commit that already has a release tag.
           head_release=$(git tag --points-at HEAD --list 'v*-conda.*')
           if [ -n "$head_release" ]; then

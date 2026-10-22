@@ -64,7 +64,8 @@ if ! git merge-base --is-ancestor "origin/$track" HEAD; then
     exit 1
 fi
 if [ "$track" = nightly ]; then
-    bash <(git show origin/stable:.github/scripts/fork-infra.sh) copy origin/stable
+    # A pipe, unlike process substitution, fails when stable lacks the script.
+    git show origin/stable:.github/scripts/fork-infra.sh | bash -s -- copy origin/stable
 fi
 if ! git merge --no-ff --no-edit --no-stat "$new"; then
     echo "Resolve conflicts on $candidate, then rerun this command:" >&2
