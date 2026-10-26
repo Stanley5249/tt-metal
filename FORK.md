@@ -42,6 +42,10 @@ The fork's source patches, all maintained here:
 
 `fork-sync` prepares and fully validates candidates on a schedule or by hand. Stable selects a published release; nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins. Runs with no upstream update skip building and compiler cache access.
 
+When upstream changes files in `.github/workflows/`, GitHub's built-in `GITHUB_TOKEN` cannot push the candidate. Use the manual preparation in step 2 below, then push with your own GitHub identity that can write workflow files (`git push origin HEAD` from the candidate branch). No extra repository secret is needed. The tracer's `TRACER_DISPATCH_TOKEN` is unrelated.
+
+Rerun `fork-sync` with the same track and exact upstream tag after the push. It reuses the remote candidate, skips the already completed push, and runs full validation. If preparation changes the candidate again, push that new commit manually before retrying. Keep upstream workflows disabled as described below, since a push with your own identity can trigger workflows.
+
 1. Review the candidate and exact commit in the Actions summary. Retire source patches when that track's upstream provides equivalent behavior.
 2. For conflicts, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>` locally, resolve and commit the merge, then rerun the command. It preserves source edits, aligns submodules, and resumes an existing candidate branch. Commit or stash user edits first. Push the result and restart `fork-sync` for that track and tag to validate on GitHub Actions.
 3. After validation and approval, run `git push origin <validated-sha>:refs/heads/<track>`. Check that validation identifies that exact commit. If the target moved and the push fails, prepare and validate a fresh candidate before retrying.

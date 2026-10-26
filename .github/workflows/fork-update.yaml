@@ -59,7 +59,16 @@ jobs:
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
           SHA: ${{ steps.prepare.outputs.sha }}
         run: |
-          git push origin "$SHA:refs/heads/$CANDIDATE"
+          # A manually pushed candidate needs validation, not another push.
+          if git show-ref --verify --quiet "refs/remotes/origin/$CANDIDATE" &&
+             [ "$(git rev-parse "refs/remotes/origin/$CANDIDATE")" = "$SHA" ]; then
+            echo "Candidate already pushed; continuing validation."
+          elif ! git diff --quiet "origin/$TRACK" "$SHA" -- .github/workflows; then
+            echo "::error::Push $CANDIDATE manually with a workflow-capable GitHub identity, then rerun fork-sync for the same track and upstream tag. See FORK.md."
+            exit 1
+          else
+            git push origin "$SHA:refs/heads/$CANDIDATE"
+          fi
       - if: always()
         env:
           TAG: ${{ steps.tag.outputs.tag }}
