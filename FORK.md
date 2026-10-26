@@ -54,6 +54,21 @@ Stable selects a published release; nightly selects a published nightly tag.
 SFPI and ttsim follow that tag's pins.
 Runs with no upstream update skip building and compiler cache access.
 
+When upstream changes files in `.github/workflows/`, GitHub's built-in
+`GITHUB_TOKEN` cannot push the candidate. Configure the repository Actions
+secret `FORK_SYNC_TOKEN` with a fine-grained personal access token restricted
+to `Stanley5249/tt-metal`, granting **Contents: read and write** and
+**Workflows: read and write**. Metadata read access is implicit. Set an
+expiration and rotate the secret before it expires. Do not reuse the tracer's
+`TRACER_DISPATCH_TOKEN`, which belongs to another repository.
+
+Only the candidate push reads `FORK_SYNC_TOKEN`; preparation and validation
+keep their built-in tokens. Without it, updates that do not change workflows
+still work, while workflow changes fail with a setup message before pushing.
+Unlike built-in-token pushes, personal-token pushes can trigger push workflows;
+keep upstream workflows disabled as described below. The explicit validation
+still runs, and integration branches are never promoted automatically.
+
 1. Review the candidate and exact commit in the Actions summary. Retire source
    patches when that track's upstream provides equivalent behavior.
 2. For conflicts, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>`
