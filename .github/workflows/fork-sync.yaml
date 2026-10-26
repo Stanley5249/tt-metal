@@ -28,8 +28,6 @@ jobs:
     uses: ./.github/workflows/fork-update.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: write
-    secrets:
-      FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
     with:
       track: ${{ matrix.track }}
       tag: ${{ inputs.tag || '' }}

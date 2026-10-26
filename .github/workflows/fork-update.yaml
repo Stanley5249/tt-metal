@@ -11,10 +11,6 @@ on:
       tag:
         default: ""
         type: string
-    secrets:
-      FORK_SYNC_TOKEN:
-        description: "Token scoped to this fork with Contents and Workflows write permissions"
-        required: false
 
 permissions: {}
 
@@ -62,16 +58,17 @@ jobs:
         env:
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
           SHA: ${{ steps.prepare.outputs.sha }}
-          # Only the push needs permission to carry upstream workflow changes.
-          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
-          SYNC_TOKEN_CONFIGURED: ${{ secrets.FORK_SYNC_TOKEN != '' }}
         run: |
-          if [ "$SYNC_TOKEN_CONFIGURED" != true ] &&
-             ! git diff --quiet "origin/$TRACK" "$SHA" -- .github/workflows; then
-            echo "::error::Set FORK_SYNC_TOKEN with Contents and Workflows write permissions on this fork; GITHUB_TOKEN cannot push upstream workflow changes."
+          # A manually pushed candidate needs validation, not another push.
+          if git show-ref --verify --quiet "refs/remotes/origin/$CANDIDATE" &&
+             [ "$(git rev-parse "refs/remotes/origin/$CANDIDATE")" = "$SHA" ]; then
+            echo "Candidate already pushed; continuing validation."
+          elif ! git diff --quiet "origin/$TRACK" "$SHA" -- .github/workflows; then
+            echo "::error::Push $CANDIDATE manually with a workflow-capable GitHub identity, then rerun fork-sync for the same track and upstream tag. See FORK.md."
             exit 1
+          else
+            git push origin "$SHA:refs/heads/$CANDIDATE"
           fi
-          git push origin "$SHA:refs/heads/$CANDIDATE"
       - if: always()
         env:
           TAG: ${{ steps.tag.outputs.tag }}
