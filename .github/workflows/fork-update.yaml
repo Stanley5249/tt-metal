@@ -11,6 +11,10 @@ on:
       tag:
         default: ""
         type: string
+    secrets:
+      FORK_SYNC_TOKEN:
+        description: "Token scoped to this fork with Contents and Workflows write permissions"
+        required: false
 
 permissions: {}
 
@@ -58,7 +62,15 @@ jobs:
         env:
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
           SHA: ${{ steps.prepare.outputs.sha }}
+          # Only the push needs permission to carry upstream workflow changes.
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
+          SYNC_TOKEN_CONFIGURED: ${{ secrets.FORK_SYNC_TOKEN != '' }}
         run: |
+          if [ "$SYNC_TOKEN_CONFIGURED" != true ] &&
+             ! git diff --quiet "origin/$TRACK" "$SHA" -- .github/workflows; then
+            echo "::error::Set FORK_SYNC_TOKEN with Contents and Workflows write permissions on this fork; GITHUB_TOKEN cannot push upstream workflow changes."
+            exit 1
+          fi
           git push origin "$SHA:refs/heads/$CANDIDATE"
       - if: always()
         env:
