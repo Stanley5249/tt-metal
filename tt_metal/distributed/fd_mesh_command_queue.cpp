@@ -33,6 +33,8 @@
 #include "impl/dispatch/dispatch_core_common.hpp"
 #include "dispatch/dispatch_settings.hpp"
 #include "dispatch/data_collection.hpp"
+#include "dispatch/device_command.hpp"
+#include "dispatch/device_command_calculator.hpp"
 #include "event/dispatch.hpp"
 #include "hal_types.hpp"
 #include "mesh_config.hpp"
@@ -107,7 +109,7 @@ public:
             context_id_, device_id, manager_id_, runtime_id, sub_device_id, num_available_worker_cores_);
     }
 
-    void record(const std::vector<IDevice*>& devices, uint64_t runtime_id, SubDeviceId sub_device_id) const {
+    void record(const std::vector<Device*>& devices, uint64_t runtime_id, SubDeviceId sub_device_id) const {
         if (!enabled_) {
             return;
         }
@@ -616,7 +618,7 @@ void FDMeshCommandQueue::enqueue_write_shard_to_core(
     in_use_ = true;
     TT_FATAL(!trace_id_.has_value(), "Writes are not supported during trace capture.");
 
-    IDevice* device = mesh_device_->impl().get_device(address.device_coord);
+    Device* device = mesh_device_->impl().get_device(address.device_coord);
     address.address = device_dispatch::add_bank_offset_to_address(device, address.virtual_core_coord, address.address);
 
     sub_device_ids = buffer_dispatch::select_sub_device_ids(mesh_device_, sub_device_ids);
@@ -661,7 +663,7 @@ void FDMeshCommandQueue::enqueue_write_dram_core_counter(
         if (!mesh_device_->impl().is_local(target.device_coord)) {
             continue;
         }
-        IDevice* device = mesh_device_->impl().get_device(target.device_coord);
+        Device* device = mesh_device_->impl().get_device(target.device_coord);
         // target.address is the full device destination (the caller pre-applies the
         // DRAM L1 NOC offset). Use the unchecked write: the DRAM-banked bounds check
         // in write_to_core rejects programmable DRAM-core (DRISC) L1. `value` is copied
@@ -703,7 +705,7 @@ void FDMeshCommandQueue::enqueue_read_shard_from_core(
     in_use_ = true;
     TT_FATAL(!trace_id_.has_value(), "Reads are not supported during trace capture.");
 
-    IDevice* device = mesh_device_->impl().get_device(address.device_coord);
+    Device* device = mesh_device_->impl().get_device(address.device_coord);
     address.address = device_dispatch::add_bank_offset_to_address(device, address.virtual_core_coord, address.address);
 
     device_dispatch::validate_core_read_write_bounds(device, address.virtual_core_coord, address.address, size_bytes);
@@ -967,11 +969,14 @@ MeshEvent FDMeshCommandQueue::enqueue_record_event_helper(
             notify_host);
     };
 
+    std::vector<MeshCoordinate> coords;
+    std::vector<uint32_t> device_ids;
     for_each_local(mesh_device_, event.impl().device_range(), [&](const auto& coord) {
-        dispatch_thread_pool_->enqueue(
-            [&dispatch_lambda, coord]() { dispatch_lambda(coord); }, mesh_device_->impl().get_device(coord)->id());
+        coords.push_back(coord);
+        device_ids.push_back(mesh_device_->impl().get_device(coord)->id());
     });
-    dispatch_thread_pool_->wait();
+    dispatch_thread_pool_->parallel_for(
+        device_ids, [&dispatch_lambda, &coords](size_t i) { dispatch_lambda(coords[i]); });
     return event;
 }
 
@@ -1124,14 +1129,15 @@ void FDMeshCommandQueue::copy_buffer_data_to_user_space(MeshBufferReadDescriptor
         // per MeshCQ (since we run out of host resources with 2 reader threads per
         // physical device).
         std::lock_guard<std::mutex> lock(reader_thread_pool_mutex_);
-        for (auto& metadata : read_buffer_descriptor.num_reads_per_dev) {
-            reader_thread_pool_->enqueue(
-                [&reader_lambda, device = metadata.first, num_reads = metadata.second]() {
-                    reader_lambda(device, num_reads);
-                },
-                metadata.first->id());
+        std::vector<std::pair<IDevice*, uint32_t>> reads(
+            read_buffer_descriptor.num_reads_per_dev.begin(), read_buffer_descriptor.num_reads_per_dev.end());
+        std::vector<uint32_t> device_ids;
+        device_ids.reserve(reads.size());
+        for (const auto& [device, num_reads] : reads) {
+            device_ids.push_back(device->id());
         }
-        reader_thread_pool_->wait();
+        reader_thread_pool_->parallel_for(
+            device_ids, [&reader_lambda, &reads](size_t i) { reader_lambda(reads[i].first, reads[i].second); });
     }
 }
 
@@ -1164,7 +1170,7 @@ void FDMeshCommandQueue::read_l1_data_from_completion_queue(MeshCoreDataReadDesc
     if (!mesh_device_->impl().is_local(read_l1_data_descriptor.device_coord)) {
         return;
     }
-    IDevice* device = mesh_device_->impl().get_device(read_l1_data_descriptor.device_coord);
+    Device* device = mesh_device_->impl().get_device(read_l1_data_descriptor.device_coord);
     const auto cid = mesh_device_->impl().get_context_id();
     const ChipId mmio_device_id =
         tt::tt_metal::MetalContext::instance(cid).get_cluster().get_associated_mmio_device(device->id());
@@ -1259,7 +1265,7 @@ void FDMeshCommandQueue::reset_worker_state(
 }
 
 void FDMeshCommandQueue::write_program_commands_to_devices(
-    const std::vector<IDevice*>& devices,
+    const std::vector<Device*>& devices,
     ProgramCommandSequence& program_cmd_seq,
     bool stall_first,
     bool stall_before_program) {
@@ -1342,6 +1348,134 @@ void FDMeshCommandQueue::enqueue_command_list(
     submit_replay_buffer(worker_descriptors, sub_device_ids, buffer);
     if (blocking) {
         this->finish_nolock();
+    }
+}
+
+void FDMeshCommandQueue::enqueue_command_list_patch(
+    const MeshBuffer& buffer, ttsl::Span<const MeshBufferPatch> patches) {
+    TTZoneScopedD(DISPATCH);
+    auto lock = lock_api_function_();
+    TT_FATAL(!trace_id_.has_value(), "Command-list patches are not supported during trace capture.");
+    if (this->get_target_device_type() == tt::TargetDevice::Mock ||
+        this->get_target_device_type() == tt::TargetDevice::Emule) {
+        return;
+    }
+
+    auto& metal_ctx = mesh_device_->impl().metal_context();
+    const uint32_t page_size = buffer.page_size();
+
+    const uint32_t dram_alignment = metal_ctx.hal().get_alignment(HalMemType::DRAM);
+    const DeviceAddr buffer_size = buffer.device_local_size();
+    for (const auto& patch : patches) {
+        const uint32_t size_bytes = patch.data.size() * sizeof(uint32_t);
+        TT_FATAL(
+            size_bytes > 0 && patch.offset % dram_alignment == 0 && size_bytes % dram_alignment == 0 &&
+                patch.offset / page_size == (patch.offset + size_bytes - 1) / page_size &&
+                patch.offset + size_bytes <= buffer_size,
+            "Command-list patch at offset {} of {} bytes must be DRAM-aligned and lie within one page of its buffer",
+            patch.offset,
+            size_bytes);
+    }
+
+    const uint32_t num_banks = mesh_device_->allocator()->get_num_banks(buffer.device_local_config().buffer_type);
+    const uint32_t max_command_size = metal_ctx.dispatch_mem_map().max_prefetch_command_size();
+    const uint32_t stall_size = [&] {
+        DeviceCommandCalculator calculator(metal_ctx);
+        calculator.add_dispatch_wait_with_prefetch_stall();
+        return calculator.write_offset_bytes();
+    }();
+
+    struct BankDestination {
+        uint32_t noc_xy = 0;
+        DeviceAddr base_address = 0;
+    };
+    std::vector<std::optional<BankDestination>> bank_destinations;
+    std::vector<std::reference_wrapper<const MeshBufferPatch>> device_patches;
+    in_use_ = true;
+    for (const auto& coord : MeshCoordinateRange(mesh_device_->shape())) {
+        if (!mesh_device_->impl().is_local(coord)) {
+            continue;
+        }
+        device_patches.clear();
+        for (const auto& patch : patches) {
+            if (patch.device_range.contains(coord)) {
+                device_patches.push_back(std::cref(patch));
+            }
+        }
+        if (device_patches.empty()) {
+            continue;
+        }
+
+        IDevice& device = *mesh_device_->impl().get_device(coord);
+        const Buffer& device_buffer = *buffer.get_device_buffer(coord);
+        const DeviceAddr aligned_page_size = device_buffer.aligned_page_size();
+        auto& sysmem_manager = device.sysmem_manager();
+        bank_destinations.assign(num_banks, std::nullopt);
+
+        // Returns the NOC endpoint and address of a byte offset in the buffer, resolving each bank once per device.
+        auto dram_destination_of_offset = [&](uint32_t offset) -> std::pair<uint32_t, DeviceAddr> {
+            const uint32_t page = offset / page_size;
+            const uint32_t bank = page % num_banks;
+            auto& cached_destination = bank_destinations[bank];
+            if (!cached_destination.has_value()) {
+                const CoreCoord dram_core = device.virtual_core_from_logical_core(
+                    device.logical_core_from_dram_channel(device.allocator_impl()->get_dram_channel_from_bank_id(bank)),
+                    tt::CoreType::DRAM);
+                cached_destination = BankDestination{
+                    .noc_xy = device.get_noc_unicast_encoding(k_dispatch_downstream_noc, dram_core),
+                    .base_address = device_buffer.page_address(bank, 0)};
+            }
+            const BankDestination& bank_destination = cached_destination.value();
+            return {
+                bank_destination.noc_xy,
+                bank_destination.base_address + ((page / num_banks) * aligned_page_size) + (offset % page_size)};
+        };
+
+        // Writes device_patches[begin, end) as one fetch-queue entry.
+        auto enqueue_patch_batch = [&](size_t begin, size_t end, uint32_t write_bytes, bool append_stall) {
+            const uint32_t cmd_sequence_sizeB = write_bytes + (append_stall ? stall_size : 0);
+            void* cmd_region = sysmem_manager.issue_queue_reserve(cmd_sequence_sizeB, id_);
+            HugepageDeviceCommand command_sequence(metal_ctx, cmd_region, cmd_sequence_sizeB);
+            for (size_t i = begin; i < end; ++i) {
+                const MeshBufferPatch& patch = device_patches[i].get();
+                const auto [noc_xy, address] = dram_destination_of_offset(patch.offset);
+                command_sequence.add_dispatch_write_linear<true, true>(
+                    0, noc_xy, address, patch.data.size() * sizeof(uint32_t), patch.data.data());
+            }
+            if (append_stall) {
+                // The prefetcher reads ahead of the dispatcher, so without this stall a later replay could fetch the
+                // command list before these writes land.
+                command_sequence.add_dispatch_wait_with_prefetch_stall(CQ_DISPATCH_CMD_WAIT_FLAG_BARRIER, 0, 0, 0);
+            }
+            sysmem_manager.issue_queue_push_back(cmd_sequence_sizeB, id_);
+            sysmem_manager.fetch_queue_reserve_back(id_);
+            sysmem_manager.fetch_queue_write(cmd_sequence_sizeB, id_);
+        };
+
+        // Pack writes into batches no larger than max_command_size. The last batch also carries the stall.
+        size_t batch_begin = 0;
+        uint32_t batch_bytes = 0;
+        for (size_t i = 0; i < device_patches.size(); ++i) {
+            const uint32_t bytes = [&] {
+                DeviceCommandCalculator calculator(metal_ctx);
+                calculator.add_dispatch_write_linear<true, true>(
+                    device_patches[i].get().data.size() * sizeof(uint32_t));
+                return calculator.write_offset_bytes();
+            }();
+            const bool batch_has_writes = i > batch_begin;
+            const bool write_overflows_batch = [&] {
+                const bool is_last_patch = i == device_patches.size() - 1;
+                const uint32_t required_stall_bytes = is_last_patch ? stall_size : 0;
+                return batch_bytes + bytes + required_stall_bytes > max_command_size;
+            }();
+            if (batch_has_writes && write_overflows_batch) {
+                enqueue_patch_batch(batch_begin, i, batch_bytes, /*append_stall=*/false);
+                batch_begin = i;
+                batch_bytes = 0;
+            }
+            batch_bytes += bytes;
+        }
+        enqueue_patch_batch(batch_begin, device_patches.size(), batch_bytes, /*append_stall=*/true);
     }
 }
 
