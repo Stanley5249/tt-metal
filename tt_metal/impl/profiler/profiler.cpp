@@ -22,6 +22,7 @@
 #include <tt_metal.hpp>
 #include "tt_metal_profiler.hpp"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -70,8 +71,9 @@ namespace tt::tt_metal {
 
 namespace {
 // On functional ttsim, nested zones can end on the same tick, and the timestamp-first set
-// order then pairs the wrong start and end markers. Markers arrive per core and RISC in
-// program order, so forcing each one above the last keeps that order.
+// order then pairs the wrong start and end markers. Forcing each marker above the last one
+// read on its core and RISC keeps the order the host reads them in. That is program order
+// for custom markers only: the guaranteed FW and KERNEL slots lead each flush.
 uint64_t orderedTimestamp(const std::set<tracy::TTDeviceMarker>& device_markers, uint64_t timestamp) {
     if (device_markers.empty()) {
         return timestamp;
@@ -1751,11 +1753,22 @@ void DeviceProfiler::readRiscProfilerResults(
             };
             std::vector<PreSentinelMarker> pre_sentinel_markers;
 
+            // On ttsim, quick_push flushes the guaranteed FW and KERNEL slots mid-kernel and
+            // finish_profiler flushes them again. The set drops the repeat only while it equals
+            // the first copy, which orderedTimestamp breaks, so remember each slot's raw marker
+            // for the current run and skip an exact repeat in the same slot.
+            constexpr int guaranteed_slot_count =
+                (kernel_profiler::CUSTOM_MARKERS - kernel_profiler::GUARANTEED_MARKER_1_H) /
+                kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE;
+            std::array<std::optional<std::pair<uint32_t, uint64_t>>, guaranteed_slot_count> guaranteed_slots_read{};
+            int run_start_index = bufferRiscShift;
+
             for (int index = bufferRiscShift; index < (bufferRiscShift + bufferEndIndex);
                  index += kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE) {
                 if (!newRunStart && data_buffer.at(index) == 0 && data_buffer.at(index + 1) == 0) {
                     newRunStart = true;
                     oneStartFound = true;
+                    run_start_index = index;
                     opTime_H = 0;
                     opTime_L = 0;
                 } else if (!oneStartFound) {
@@ -1791,9 +1804,15 @@ void DeviceProfiler::readRiscProfilerResults(
                         deviceTraceCounterRead = (data_buffer.at(index) >> kernel_profiler::PROFILER_ID_TRACE_SHIFT) &
                                                  kernel_profiler::PROFILER_ID_TRACE_MASK;
                     }
+                    const uint32_t previousRunHostCounter = runHostCounterRead;
+                    const uint32_t previousDeviceTraceCounter = deviceTraceCounterRead;
                     runHostCounterRead = data_buffer.at(index + 1);
                     if (runHostCounterRead != 0) {
                         runHostCounterRead = detail::EncodePerDeviceProgramID(runHostCounterRead, device_id);
+                    }
+                    if (runHostCounterRead != previousRunHostCounter ||
+                        deviceTraceCounterRead != previousDeviceTraceCounter) {
+                        guaranteed_slots_read.fill(std::nullopt);
                     }
 
                     const uint32_t base_program_id =
@@ -1827,6 +1846,20 @@ void DeviceProfiler::readRiscProfilerResults(
                             uint32_t time_H = data_buffer.at(index) & kernel_profiler::PROFILER_MARKER_TS_HIGH_MASK;
                             if (timer_id || time_H) {
                                 uint32_t time_L = data_buffer.at(index + 1);
+
+                                const int slot_offset = index - run_start_index;
+                                if (this->simulated_clock && slot_offset >= kernel_profiler::GUARANTEED_MARKER_1_H &&
+                                    slot_offset < kernel_profiler::CUSTOM_MARKERS) {
+                                    auto& slot = guaranteed_slots_read
+                                        [(slot_offset - kernel_profiler::GUARANTEED_MARKER_1_H) /
+                                         kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE];
+                                    const std::pair<uint32_t, uint64_t> raw_marker{
+                                        timer_id, (uint64_t(time_H) << 32) | time_L};
+                                    if (slot == raw_marker) {
+                                        break;
+                                    }
+                                    slot = raw_marker;
+                                }
 
                                 if (opTime_H == 0) {
                                     opTime_H = time_H;
