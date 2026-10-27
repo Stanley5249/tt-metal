@@ -1753,14 +1753,11 @@ void DeviceProfiler::readRiscProfilerResults(
             };
             std::vector<PreSentinelMarker> pre_sentinel_markers;
 
-            // On ttsim, quick_push flushes the guaranteed FW and KERNEL slots mid-kernel and
-            // finish_profiler flushes them again. The set drops the repeat only while it equals
-            // the first copy, which orderedTimestamp breaks, so remember each slot's raw marker
-            // for the current run and skip an exact repeat in the same slot.
-            constexpr int guaranteed_slot_count =
+            static_assert(
+                std::tuple_size_v<GuaranteedMarkers> ==
                 (kernel_profiler::CUSTOM_MARKERS - kernel_profiler::GUARANTEED_MARKER_1_H) /
-                kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE;
-            std::array<std::optional<std::pair<uint32_t, uint64_t>>, guaranteed_slot_count> guaranteed_slots_read{};
+                    kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE);
+            GuaranteedMarkers& guaranteed_markers_read = guaranteed_markers_per_core_risc_map[phys_coord][riscType];
             int run_start_index = bufferRiscShift;
 
             for (int index = bufferRiscShift; index < (bufferRiscShift + bufferEndIndex);
@@ -1804,15 +1801,9 @@ void DeviceProfiler::readRiscProfilerResults(
                         deviceTraceCounterRead = (data_buffer.at(index) >> kernel_profiler::PROFILER_ID_TRACE_SHIFT) &
                                                  kernel_profiler::PROFILER_ID_TRACE_MASK;
                     }
-                    const uint32_t previousRunHostCounter = runHostCounterRead;
-                    const uint32_t previousDeviceTraceCounter = deviceTraceCounterRead;
                     runHostCounterRead = data_buffer.at(index + 1);
                     if (runHostCounterRead != 0) {
                         runHostCounterRead = detail::EncodePerDeviceProgramID(runHostCounterRead, device_id);
-                    }
-                    if (runHostCounterRead != previousRunHostCounter ||
-                        deviceTraceCounterRead != previousDeviceTraceCounter) {
-                        guaranteed_slots_read.fill(std::nullopt);
                     }
 
                     const uint32_t base_program_id =
@@ -1836,29 +1827,47 @@ void DeviceProfiler::readRiscProfilerResults(
                     pre_sentinel_markers.clear();
 
                 } else if (oneStartFound) {
-                    uint32_t timer_id = (data_buffer.at(index) >> kernel_profiler::PROFILER_MARKER_TIMER_ID_SHIFT) &
-                                        kernel_profiler::PROFILER_MARKER_TIMER_ID_MASK;
+                    // On ttsim, read the guaranteed slots (FW start, FW end, KERNEL start, KERNEL end) in
+                    // nesting order, so orderedTimestamp keeps KERNEL inside FW. Otherwise a KERNEL start
+                    // flushed by quick_push ends up after the FW end flushed at kernel exit.
+                    const int slot_offset = index - run_start_index;
+                    const bool guaranteed_slot = this->simulated_clock &&
+                                                 slot_offset >= kernel_profiler::GUARANTEED_MARKER_1_H &&
+                                                 slot_offset < kernel_profiler::CUSTOM_MARKERS;
+                    int slot = 0;
+                    int read_index = index;
+                    if (guaranteed_slot) {
+                        constexpr std::array<int, std::tuple_size_v<GuaranteedMarkers>> nesting_order{0, 2, 3, 1};
+                        slot = nesting_order
+                            [(slot_offset - kernel_profiler::GUARANTEED_MARKER_1_H) /
+                             kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE];
+                        read_index = run_start_index + kernel_profiler::GUARANTEED_MARKER_1_H +
+                                     slot * kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE;
+                    }
+
+                    uint32_t timer_id =
+                        (data_buffer.at(read_index) >> kernel_profiler::PROFILER_MARKER_TIMER_ID_SHIFT) &
+                        kernel_profiler::PROFILER_MARKER_TIMER_ID_MASK;
                     kernel_profiler::PacketTypes packet_type = get_packet_type(timer_id);
 
                     switch (packet_type) {
                         case kernel_profiler::ZONE_START:
                         case kernel_profiler::ZONE_END: {
-                            uint32_t time_H = data_buffer.at(index) & kernel_profiler::PROFILER_MARKER_TS_HIGH_MASK;
+                            uint32_t time_H =
+                                data_buffer.at(read_index) & kernel_profiler::PROFILER_MARKER_TS_HIGH_MASK;
                             if (timer_id || time_H) {
-                                uint32_t time_L = data_buffer.at(index + 1);
+                                uint32_t time_L = data_buffer.at(read_index + 1);
 
-                                const int slot_offset = index - run_start_index;
-                                if (this->simulated_clock && slot_offset >= kernel_profiler::GUARANTEED_MARKER_1_H &&
-                                    slot_offset < kernel_profiler::CUSTOM_MARKERS) {
-                                    auto& slot = guaranteed_slots_read
-                                        [(slot_offset - kernel_profiler::GUARANTEED_MARKER_1_H) /
-                                         kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE];
+                                // quick_push and later runs that have not yet overwritten a guaranteed slot
+                                // flush it again unchanged. Drop such a repeat by its raw value, as the set
+                                // would without orderedTimestamp.
+                                if (guaranteed_slot) {
                                     const std::pair<uint32_t, uint64_t> raw_marker{
                                         timer_id, (uint64_t(time_H) << 32) | time_L};
-                                    if (slot == raw_marker) {
+                                    if (guaranteed_markers_read[slot] == raw_marker) {
                                         break;
                                     }
-                                    slot = raw_marker;
+                                    guaranteed_markers_read[slot] = raw_marker;
                                 }
 
                                 if (opTime_H == 0) {
@@ -2479,6 +2488,7 @@ void DeviceProfiler::clearStateForDeviceReinit() {
     this->core_l1_data_buffers.clear();
     this->active_dram_buffer_per_core_risc_map.clear();
     this->device_markers_per_core_risc_map.clear();
+    this->guaranteed_markers_per_core_risc_map.clear();
 }
 
 void DeviceProfiler::resetActiveDramBufferIndices() {
