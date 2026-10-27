@@ -6,7 +6,16 @@ This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) bui
 
 `stable` is the default branch, based on an upstream release tag. `nightly` uses a selected nightly tag. Their upstream histories can diverge, so keep the tracks independent and preserve published history. The fork has no `main`.
 
-Merge upstream tags with a merge commit, then fast-forward the integration branch to the exact validated candidate. Keep fork-owned changes focused, preferably one commit per change, and fix published changes with follow-ups.
+Choose the integration method by the kind of change:
+
+| Change                           | Method                            |
+| -------------------------------- | --------------------------------- |
+| Fork-owned task                  | task branch, then fast-forward    |
+| Upstream update                  | merge tag, validate, fast-forward |
+| Shared infrastructure to nightly | copy stable's snapshot            |
+| Source patch to nightly          | cherry-pick and adapt             |
+
+Keep fork-owned changes focused, preferably one commit per change. Unpublished fork-owned task commits may be rebased onto the latest target before integration. Preserve published history and fix published changes with follow-ups. Once a candidate is validated, promote that exact SHA without rebasing, squashing, or adding another merge commit. Any change to the candidate requires validation of its new SHA.
 
 ```text
 upstream releases -- v0.79.0 ---------------------------- v0.80.0
@@ -20,10 +29,7 @@ nightly            M ------- infra snapshot -- source patch ----- M
 upstream main -- v0.80.0-dev20261002 ----------------- v0.81.0-dev20261011
 ```
 
-Develop on a `feat/*`, `fix/*`, `refactor/*`, or `ci/*` branch from stable and integrate there first. Propagate changes to nightly in two ways:
-
-- Infrastructure paths in `.github/fork-infra` stay identical on both tracks. On a task branch from nightly, run `.github/scripts/fork-infra.sh copy` to take stable's snapshot. Nightly's checks enforce equality with stable.
-- Cherry-pick source patches individually and adapt them to nightly's upstream.
+Start fork-owned work on a task branch from stable. For nightly infrastructure updates, start a task branch from nightly and run `.github/scripts/fork-infra.sh copy` to take stable's snapshot. Paths in `.github/fork-infra` must stay identical on both tracks, and nightly's checks enforce that equality. Do not merge stable into nightly, because their upstream histories can differ.
 
 The fork's source patches, all maintained here:
 
@@ -42,14 +48,13 @@ The fork's source patches, all maintained here:
 
 `fork-sync` prepares and fully validates candidates on a schedule or by hand. Stable selects a published release; nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins. Runs with no upstream update skip building and compiler cache access.
 
-When upstream changes files in `.github/workflows/`, GitHub's built-in `GITHUB_TOKEN` cannot push the candidate. Use the manual preparation in step 2 below, then push with your own GitHub identity that can write workflow files (`git push origin HEAD` from the candidate branch). No extra repository secret is needed. The tracer's `TRACER_DISPATCH_TOKEN` is unrelated.
+1. Run `fork-sync` for the track and upstream tag. It prepares a candidate by merging the tag with a merge commit, not by rebasing fork patches. Review the candidate in the Actions summary and retire source patches when that track's upstream provides equivalent behavior.
+2. If preparation needs manual work, commit or stash user edits, then run `.github/scripts/fork-sync.sh <stable|nightly> <tag>` locally. For conflicts, resolve and commit the merge, then rerun the command. The script preserves source edits, aligns submodules, and resumes an existing candidate branch.
+3. Push a manually prepared candidate with `git push origin HEAD` from that branch, then rerun `fork-sync` with the same track and exact upstream tag. It reuses the remote candidate, skips pushing when the SHA already matches, and runs full validation. If preparation changes the candidate again, push the new commit before retrying.
+4. After validation and approval, run `git push origin <validated-sha>:refs/heads/<track>`. This fast-forwards the track to the validated candidate. If the target moved and the push fails, prepare and validate a fresh candidate before retrying.
+5. Start `fork-release` on the integration branch with `release` enabled. It validates again and drafts a release. Review and publish after approval; nightly releases are prereleases.
 
-Rerun `fork-sync` with the same track and exact upstream tag after the push. It reuses the remote candidate, skips the already completed push, and runs full validation. If preparation changes the candidate again, push that new commit manually before retrying. Keep upstream workflows disabled as described below, since a push with your own identity can trigger workflows.
-
-1. Review the candidate and exact commit in the Actions summary. Retire source patches when that track's upstream provides equivalent behavior.
-2. For conflicts, run `.github/scripts/fork-sync.sh <stable|nightly> <tag>` locally, resolve and commit the merge, then rerun the command. It preserves source edits, aligns submodules, and resumes an existing candidate branch. Commit or stash user edits first. Push the result and restart `fork-sync` for that track and tag to validate on GitHub Actions.
-3. After validation and approval, run `git push origin <validated-sha>:refs/heads/<track>`. Check that validation identifies that exact commit. If the target moved and the push fails, prepare and validate a fresh candidate before retrying.
-4. Start `fork-release` on the integration branch with `release` enabled. It validates again and drafts a release. Review and publish after approval; nightly releases are prereleases.
+When the candidate changes `.github/workflows/`, GitHub's built-in `GITHUB_TOKEN` cannot push it. Use steps 2 and 3 with your own GitHub identity that can write workflow files. No extra repository secret is needed, and the tracer's `TRACER_DISPATCH_TOKEN` is unrelated. Keep upstream workflows disabled as described below, because a push with your own identity can trigger workflows.
 
 For build-only validation, start `fork-release` on the candidate with its matching `track` and `release` disabled. It uses `conda.test` and Contents read permission. Release numbering and write access belong to release preparation and drafting. Keep local work to preparation and `just ci`; full builds and simulator tests run on GitHub Actions.
 
