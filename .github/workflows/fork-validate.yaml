@@ -181,11 +181,10 @@ jobs:
           test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
           python .github/scripts/fork-smoke-check.py generated/profiler/.logs
       # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel, which ttsim's
-      # timestamp ordering must not turn into unpaired zones. Checked on wh, where it was seen.
+      # timestamp ordering must not turn into unpaired zones.
       - run: |
           python -m tracy -p -r --check-exit-code --collect-noc-traces -o generated/noc .github/scripts/fork-smoke.py
-          if [ "$ARCH" = wh ]; then expect=--expect-quick-push; else expect=; fi
-          python .github/scripts/fork-smoke-check.py generated/noc/.logs --noc ${expect:+"$expect"}
+          python .github/scripts/fork-smoke-check.py generated/noc/.logs --noc --expect-quick-push
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
