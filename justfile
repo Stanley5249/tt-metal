@@ -15,7 +15,6 @@ cpm_cache := home_directory() / ".cache/cpm"
 dist_dir := justfile_directory() / "dist"
 wheel_work := justfile_directory() / "build_wheel"
 tracy_asset := "tracy-tools-linux_x86_64.tar.gz"
-ttsim_repo := "tenstorrent/ttsim"
 
 # Fail instead of re-solving when pixi.lock is out of date; run `pixi lock` after a manifest change.
 export PIXI_LOCKED := "true"
@@ -34,12 +33,18 @@ build *args:
         --cpm-source-cache "{{ cpm_cache }}" \
         --toolchain-path cmake/x86_64-linux-clang-20-conda-toolchain.cmake "$@"
 
-# Download the ttsim library that tt_metal/ttsim-version pins into sim/
+# Download the ttsim library that tt_metal/ttsim-release names into sim/: the fork's patched build of the
+# upstream ttsim release that tt_metal/ttsim-version pins
 [arg("arch", long, pattern="wh|bh|", help="wh: Wormhole, bh: Blackhole; by default the arch already in sim/, else wh")]
 [group("setup")]
 [script]
 fetch-ttsim arch="":
-    tag=$(tr -d '[:space:]' < tt_metal/ttsim-version)
+    read -r repo tag < tt_metal/ttsim-release
+    upstream=$(tr -d '[:space:]' < tt_metal/ttsim-version)
+    case $tag in
+        "$upstream"-*) ;;
+        *) echo "tt_metal/ttsim-release names $tag, not a build of ttsim $upstream" >&2; exit 1 ;;
+    esac
     # test and trace call this without an arch, so they keep the one in sim/.
     arch={{ arch }}
     if [ -z "$arch" ]; then
@@ -59,7 +64,7 @@ fetch-ttsim arch="":
     asset=libttsim_$arch.so
     # A GH_TOKEN lifts the API's anonymous rate limit, which CI runners share.
     hash=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
-        "https://api.github.com/repos/{{ ttsim_repo }}/releases/tags/$tag" |
+        "https://api.github.com/repos/$repo/releases/tags/$tag" |
         ASSET=$asset python3 -c '
     import json, os, sys
     for a in json.load(sys.stdin)["assets"]:
@@ -67,12 +72,12 @@ fetch-ttsim arch="":
             print(a["digest"].removeprefix("sha256:"))
     ')
     if [ -z "$hash" ]; then
-        echo "no sha256 digest for $asset in ttsim $tag" >&2
+        echo "no sha256 digest for $asset in $repo $tag" >&2
         exit 1
     fi
     mkdir -p sim
     # Verify before replacing, so a bad download never reaches TT_METAL_SIMULATOR.
-    curl -fsSL -o sim/libttsim.so.part "https://github.com/{{ ttsim_repo }}/releases/download/$tag/$asset"
+    curl -fsSL -o sim/libttsim.so.part "https://github.com/$repo/releases/download/$tag/$asset"
     echo "$hash  sim/libttsim.so.part" | sha256sum -c --quiet -
     mv sim/libttsim.so.part sim/libttsim.so
     cp "tt_metal/soc_descriptors/$soc" sim/soc_descriptor.yaml
