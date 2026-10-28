@@ -5,7 +5,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <filesystem>
@@ -79,9 +78,6 @@ private:
 
     // Device frequency
     int device_core_frequency{};
-
-    // Functional ttsim reports no AICLK and its wall clock only advances on host access
-    bool simulated_clock{};
 
     // Device max compute cores
     uint32_t max_compute_cores;
@@ -291,12 +287,6 @@ public:
 
     // Device markers grouped by (physical core, risc type)
     std::map<CoreCoord, std::map<tracy::RiscType, std::set<tracy::TTDeviceMarker>>> device_markers_per_core_risc_map;
-
-    // On ttsim, the last raw (timer id, timestamp) read from each guaranteed FW and KERNEL slot per core and RISC.
-    // orderedTimestamp keeps a repeated slot from matching its first copy, so readRiscProfilerResults drops repeats
-    // here. Bounded by the slot count, and kept across reads because a later run repeats the previous run's slots.
-    using GuaranteedMarkers = std::array<std::optional<std::pair<uint32_t, uint64_t>>, 4>;
-    std::map<CoreCoord, std::map<tracy::RiscType, GuaranteedMarkers>> guaranteed_markers_per_core_risc_map;
 
     std::set<tracy::TTDeviceMarker> device_sync_markers;
 

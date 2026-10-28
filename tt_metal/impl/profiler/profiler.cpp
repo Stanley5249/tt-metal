@@ -22,7 +22,6 @@
 #include <tt_metal.hpp>
 #include "tt_metal_profiler.hpp"
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -70,18 +69,6 @@
 namespace tt::tt_metal {
 
 namespace {
-// On functional ttsim, nested zones can end on the same tick, and the timestamp-first set
-// order then pairs the wrong start and end markers. Forcing each marker above the last one
-// read on its core and RISC keeps the order the host reads them in. That is program order
-// for custom markers only: the guaranteed FW and KERNEL slots lead each flush.
-uint64_t orderedTimestamp(const std::set<tracy::TTDeviceMarker>& device_markers, uint64_t timestamp) {
-    if (device_markers.empty()) {
-        return timestamp;
-    }
-    const uint64_t previous = device_markers.rbegin()->timestamp;
-    return timestamp > previous ? timestamp : previous + 1;
-}
-
 kernel_profiler::PacketTypes get_packet_type(uint32_t timer_id) {
     return static_cast<kernel_profiler::PacketTypes>(
         (timer_id >> kernel_profiler::PROFILER_TIMER_PACKET_TYPE_SHIFT) &
@@ -1753,19 +1740,11 @@ void DeviceProfiler::readRiscProfilerResults(
             };
             std::vector<PreSentinelMarker> pre_sentinel_markers;
 
-            static_assert(
-                std::tuple_size_v<GuaranteedMarkers> ==
-                (kernel_profiler::CUSTOM_MARKERS - kernel_profiler::GUARANTEED_MARKER_1_H) /
-                    kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE);
-            GuaranteedMarkers& guaranteed_markers_read = guaranteed_markers_per_core_risc_map[phys_coord][riscType];
-            int run_start_index = bufferRiscShift;
-
             for (int index = bufferRiscShift; index < (bufferRiscShift + bufferEndIndex);
                  index += kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE) {
                 if (!newRunStart && data_buffer.at(index) == 0 && data_buffer.at(index + 1) == 0) {
                     newRunStart = true;
                     oneStartFound = true;
-                    run_start_index = index;
                     opTime_H = 0;
                     opTime_L = 0;
                 } else if (!oneStartFound) {
@@ -1827,48 +1806,16 @@ void DeviceProfiler::readRiscProfilerResults(
                     pre_sentinel_markers.clear();
 
                 } else if (oneStartFound) {
-                    // On ttsim, read the guaranteed slots (FW start, FW end, KERNEL start, KERNEL end) in
-                    // nesting order, so orderedTimestamp keeps KERNEL inside FW. Otherwise a KERNEL start
-                    // flushed by quick_push ends up after the FW end flushed at kernel exit.
-                    const int slot_offset = index - run_start_index;
-                    const bool guaranteed_slot = this->simulated_clock &&
-                                                 slot_offset >= kernel_profiler::GUARANTEED_MARKER_1_H &&
-                                                 slot_offset < kernel_profiler::CUSTOM_MARKERS;
-                    int slot = 0;
-                    int read_index = index;
-                    if (guaranteed_slot) {
-                        constexpr std::array<int, std::tuple_size_v<GuaranteedMarkers>> nesting_order{0, 2, 3, 1};
-                        slot = nesting_order
-                            [(slot_offset - kernel_profiler::GUARANTEED_MARKER_1_H) /
-                             kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE];
-                        read_index = run_start_index + kernel_profiler::GUARANTEED_MARKER_1_H +
-                                     slot * kernel_profiler::PROFILER_L1_MARKER_UINT32_SIZE;
-                    }
-
-                    uint32_t timer_id =
-                        (data_buffer.at(read_index) >> kernel_profiler::PROFILER_MARKER_TIMER_ID_SHIFT) &
-                        kernel_profiler::PROFILER_MARKER_TIMER_ID_MASK;
+                    uint32_t timer_id = (data_buffer.at(index) >> kernel_profiler::PROFILER_MARKER_TIMER_ID_SHIFT) &
+                                        kernel_profiler::PROFILER_MARKER_TIMER_ID_MASK;
                     kernel_profiler::PacketTypes packet_type = get_packet_type(timer_id);
 
                     switch (packet_type) {
                         case kernel_profiler::ZONE_START:
                         case kernel_profiler::ZONE_END: {
-                            uint32_t time_H =
-                                data_buffer.at(read_index) & kernel_profiler::PROFILER_MARKER_TS_HIGH_MASK;
+                            uint32_t time_H = data_buffer.at(index) & kernel_profiler::PROFILER_MARKER_TS_HIGH_MASK;
                             if (timer_id || time_H) {
-                                uint32_t time_L = data_buffer.at(read_index + 1);
-
-                                // quick_push and later runs that have not yet overwritten a guaranteed slot
-                                // flush it again unchanged. Drop such a repeat by its raw value, as the set
-                                // would without orderedTimestamp.
-                                if (guaranteed_slot) {
-                                    const std::pair<uint32_t, uint64_t> raw_marker{
-                                        timer_id, (uint64_t(time_H) << 32) | time_L};
-                                    if (guaranteed_markers_read[slot] == raw_marker) {
-                                        break;
-                                    }
-                                    guaranteed_markers_read[slot] = raw_marker;
-                                }
+                                uint32_t time_L = data_buffer.at(index + 1);
 
                                 if (opTime_H == 0) {
                                     opTime_H = time_H;
@@ -2071,9 +2018,6 @@ void DeviceProfiler::readDeviceMarkerData(
     uint32_t timer_id,
     uint64_t timestamp) {
     ZoneScoped;
-    if (this->simulated_clock) {
-        timestamp = orderedTimestamp(device_markers, timestamp);
-    }
 
     nlohmann::json meta_data;
     add_program_sub_device_meta_data(meta_data, this->context_id, run_host_id);
@@ -2147,9 +2091,6 @@ void DeviceProfiler::readTsData16BMarkerData(
     uint32_t timer_id,
     uint64_t timestamp) {
     ZoneScoped;
-    if (this->simulated_clock) {
-        timestamp = orderedTimestamp(device_markers, timestamp);
-    }
 
     nlohmann::json meta_data;
     [[maybe_unused]] std::optional<NOCDebugEvent> noc_debug_event;
@@ -2488,7 +2429,6 @@ void DeviceProfiler::clearStateForDeviceReinit() {
     this->core_l1_data_buffers.clear();
     this->active_dram_buffer_per_core_risc_map.clear();
     this->device_markers_per_core_risc_map.clear();
-    this->guaranteed_markers_per_core_risc_map.clear();
 }
 
 void DeviceProfiler::resetActiveDramBufferIndices() {
@@ -2513,7 +2453,6 @@ DeviceProfiler::DeviceProfiler(const IDevice* device, const bool new_logs [[mayb
     max_compute_cores(device->logical_grid_size().x * device->logical_grid_size().y) {
     if (device_core_frequency == 0) {
         // Nominal clock, so cycle counts still convert to non-zero durations
-        simulated_clock = true;
         device_core_frequency = 1000;
     }
 #if defined(TRACY_ENABLE)

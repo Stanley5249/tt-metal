@@ -40,13 +40,13 @@ The fork's source patches, all maintained here:
 | skip unpaired device markers instead of aborting  | `tt_metal/impl/profiler/profiler.cpp`                        |
 | `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                               |
 | ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/tt_transformers/tt/model_config.py`      |
-| ship the ttsim version pin                        | `setup.py`                                                   |
+| ship the ttsim version pin and release            | `setup.py`                                                   |
 | bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                        |
 | build in pixi                                     | `.gitattributes`, `.gitignore`                               |
 
 ## Syncing with upstream
 
-`fork-sync` prepares and fully validates candidates on a schedule or by hand. Stable selects a published release; nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins. Runs with no upstream update skip building and compiler cache access.
+`fork-sync` prepares and fully validates candidates on a schedule or by hand. Stable selects a published release; nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins. `tt_metal/ttsim-release` names the patched ttsim build to download, a [Stanley5249/ttsim](https://github.com/Stanley5249/ttsim) release tagged `<ttsim-version>-steps.N`, whose wall clock gives each simulator step its own time so device profiler timestamps never tie. When an upstream update moves `ttsim-version`, release the matching build there first and update `ttsim-release`, or `just fetch-ttsim` refuses the mismatch. Runs with no upstream update skip building and compiler cache access.
 
 1. Run `fork-sync` for the track and upstream tag. It prepares a candidate by merging the tag with a merge commit, not by rebasing fork patches. Review the candidate in the Actions summary and retire source patches when that track's upstream provides equivalent behavior.
 2. If preparation needs manual work, commit or stash user edits, then run `.github/scripts/fork-sync.sh <stable|nightly> <tag>` locally. For conflicts, resolve and commit the merge, then rerun the command. The script preserves source edits, aligns submodules, and resumes an existing candidate branch.
