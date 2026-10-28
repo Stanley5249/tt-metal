@@ -406,8 +406,9 @@ class CMakeBuild(build_ext):
             "tools/profiler/**/*",
             "soc_descriptors/*.yaml",
             "sfpi-version",
-            # The ttsim release that matches this tt-metal, for running the wheel on ttsim.
+            # The ttsim release that matches this tt-metal, and the fork's build of it, for running the wheel on ttsim.
             "ttsim-version",
+            "ttsim-release",
             "pre-compiled/**/*",
         ]
         copy_tree_with_patterns(build_dir / get_lib_dir(), self.build_lib + f"/ttnn/build/lib", lib_patterns)

@@ -70,17 +70,6 @@
 namespace tt::tt_metal {
 
 namespace {
-// On functional ttsim, nested zones can end on the same tick, and the timestamp-first set
-// order then pairs the wrong start and end markers. Markers arrive per core and RISC in
-// program order, so forcing each one above the last keeps that order.
-uint64_t orderedTimestamp(const std::set<tracy::TTDeviceMarker>& device_markers, uint64_t timestamp) {
-    if (device_markers.empty()) {
-        return timestamp;
-    }
-    const uint64_t previous = device_markers.rbegin()->timestamp;
-    return timestamp > previous ? timestamp : previous + 1;
-}
-
 kernel_profiler::PacketTypes get_packet_type(uint32_t timer_id) {
     return static_cast<kernel_profiler::PacketTypes>(
         (timer_id >> kernel_profiler::PROFILER_TIMER_PACKET_TYPE_SHIFT) &
@@ -1991,9 +1980,6 @@ void DeviceProfiler::readDeviceMarkerData(
     uint32_t timer_id,
     uint64_t timestamp) {
     ZoneScoped;
-    if (this->simulated_clock) {
-        timestamp = orderedTimestamp(device_markers, timestamp);
-    }
 
     nlohmann::json meta_data;
     if (const auto sub_device_meta_data = getProgramSubDeviceMetaData(run_host_id)) {
@@ -2069,9 +2055,6 @@ void DeviceProfiler::readTsData16BMarkerData(
     uint32_t timer_id,
     uint64_t timestamp) {
     ZoneScoped;
-    if (this->simulated_clock) {
-        timestamp = orderedTimestamp(device_markers, timestamp);
-    }
 
     nlohmann::json meta_data;
     [[maybe_unused]] std::optional<NOCDebugEvent> noc_debug_event;
@@ -2442,7 +2425,6 @@ DeviceProfiler::DeviceProfiler(const IDevice* device, const bool new_logs [[mayb
     max_compute_cores(device->logical_grid_size().x * device->logical_grid_size().y) {
     if (device_core_frequency == 0) {
         // Nominal clock, so cycle counts still convert to non-zero durations
-        simulated_clock = true;
         device_core_frequency = 1000;
     }
 #if defined(TRACY_ENABLE)
