@@ -42,11 +42,10 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "remote", "rename", "origin", "upstream")
         self.git(self.work, "remote", "add", "origin", str(self.origin))
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
-        self.write(self.work, ".github/fork-infra", "fork.txt\n")
-        for script in ["fork-infra.sh", "fork-select-tag.sh", "fork-upstream-tags.sh", "fork-version.sh"]:
+        for script in ["fork-select-tag.sh", "fork-upstream-tags.sh", "fork-version.sh"]:
             self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
-        self.write(self.work, "fork.txt", "infrastructure\n")
-        self.commit(self.work, "fork infrastructure")
+        self.write(self.work, "fork.txt", "fork change\n")
+        self.commit(self.work, "fork change")
         infrastructure = self.head()
         self.git(self.work, "switch", "-q", "-c", "nightly", "v1.1.0-dev20260101")
         self.git(self.work, "cherry-pick", infrastructure)
@@ -81,10 +80,15 @@ class ForkSyncTests(unittest.TestCase):
         self.commit(self.upstream, "upstream update")
         self.git(self.upstream, "tag", tag)
 
-    def sync(self, track="stable", tag="v1.0.1", success=True):
+    def sync(self, track="stable", tag="v1.0.1", success=True, status=None):
         (self.root / "output").write_text("")
         result = self.call(["bash", str(SCRIPTS / "fork-sync.sh"), track, tag], success=success)
+        if status is not None:
+            self.assertEqual(result.returncode, status, result.stdout + result.stderr)
         return result.stdout + result.stderr
+
+    def outputs(self):
+        return dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
 
     def version(self, track="stable", ref="HEAD", label=""):
         output = self.call(["bash", str(SCRIPTS / "fork-version.sh"), track, ref, label]).stdout
@@ -101,6 +105,7 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "tag", "v1.0.1-rc1")
         metadata = self.version(label="conda.test")
         self.assertEqual(metadata["base"], "v1.0.0")
+        self.assertEqual(metadata["track"], "stable")
         self.assertEqual(metadata["version"], "1.0.0+conda.test")
         self.assertEqual(metadata["base-commit"], self.git(self.work, "rev-parse", "v1.0.0^{commit}").strip())
         self.assertEqual(self.version("auto")["version"], "1.0.0")
@@ -109,6 +114,7 @@ class ForkSyncTests(unittest.TestCase):
     def test_nightly_version_and_track_guard(self):
         metadata = self.version("nightly", "origin/nightly", "conda.2")
         self.assertEqual(metadata["base"], "v1.1.0-dev20260101")
+        self.assertEqual(metadata["track"], "nightly")
         self.assertEqual(metadata["version"], "1.1.0.dev20260101+conda.2")
         self.assertEqual(self.version("auto", "origin/nightly")["version"], "1.1.0.dev20260101")
         self.assertIn("cannot build", self.version_error("stable", "origin/nightly"))
@@ -128,7 +134,11 @@ class ForkSyncTests(unittest.TestCase):
         self.assertEqual((self.work / "tt_metal/ttsim-version").read_text(), "new-upstream-ttsim\n")
         self.sync()
         self.assertEqual(self.head(), sha)
-        self.assertIn("changed=true", (self.root / "output").read_text())
+        outputs = self.outputs()
+        self.assertEqual(outputs["changed"], "true")
+        self.assertEqual(outputs["sha"], sha)
+        self.assertEqual(outputs["candidate"], "chore/sync-stable-v1.0.1")
+        self.assertIn(self.git(self.upstream, "rev-parse", "v1.0.1").strip(), self.git(self.work, "log", "--format=%P", "-1"))
         self.assertEqual(
             self.git(self.work, "rev-parse", "origin/stable"), self.git(self.work, "rev-parse", "stable")
         )
@@ -155,7 +165,7 @@ class ForkSyncTests(unittest.TestCase):
         self.sync()
         self.git(self.work, "push", "-q", "origin", "HEAD:stable")
         self.sync()
-        self.assertEqual((self.root / "output").read_text(), "changed=false\n")
+        self.assertEqual(self.outputs()["changed"], "false")
 
     def test_invalid_tag_and_dirty_tree(self):
         self.assertIn("not an upstream", self.sync(tag="v1.0.1-rc1", success=False))
@@ -168,7 +178,7 @@ class ForkSyncTests(unittest.TestCase):
         self.commit(self.work, "source patch")
         self.git(self.work, "push", "-q", "origin", "stable")
         self.advance()
-        self.assertIn("Resolve conflicts", self.sync(success=False))
+        self.assertIn("Resolve conflicts", self.sync(success=False, status=2))
         self.git(self.work, "rev-parse", "--verify", "MERGE_HEAD")
         self.assertIn("source.txt", self.git(self.work, "diff", "--name-only", "--diff-filter=U"))
         self.write(self.work, "source.txt", "resolved patch\n")
@@ -182,14 +192,19 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "push", "-q", "origin", "HEAD:stable")
         self.assertIn("not a forward upgrade", self.sync(tag="v1.0.0", success=False))
 
-    def test_reject_stale_candidate(self):
+    def test_moved_track_merges_into_update_branch(self):
         self.advance()
         self.sync()
+        merge = self.head()
+        self.git(self.work, "push", "-q", "origin", "HEAD")
         self.git(self.work, "switch", "-q", "stable")
         self.write(self.work, "new-fork.txt", "new fork change\n")
         self.commit(self.work, "new fork change")
         self.git(self.work, "push", "-q", "origin", "stable")
-        self.assertIn("behind stable", self.sync(success=False))
+        self.sync()
+        self.git(self.work, "merge-base", "--is-ancestor", merge, "HEAD")
+        self.git(self.work, "merge-base", "--is-ancestor", "origin/stable", "HEAD")
+        self.assertEqual(self.outputs()["sha"], self.head())
 
     def test_select_tags(self):
         binary = self.root / "bin"
@@ -211,16 +226,25 @@ class ForkSyncTests(unittest.TestCase):
         self.commit(self.work, "override dependency")
         self.git(self.work, "push", "-q", "origin", "stable")
         self.advance()
-        self.sync(success=False)
-        self.assertEqual((self.root / "output").read_text(), "")
+        self.sync(success=False, status=1)
+        self.assertNotIn("changed", self.outputs())
 
-    def test_nightly_copies_stable_infrastructure(self):
-        self.write(self.work, "fork.txt", "new stable infrastructure\n")
-        self.commit(self.work, "infrastructure update")
+    def test_fetch_failure_is_not_a_conflict(self):
+        self.advance()
+        self.git(self.work, "remote", "set-url", "upstream", str(self.root / "missing"))
+        output = self.sync(success=False, status=128)
+        self.assertIn("missing", output)
+        self.assertNotIn("Resolve conflicts", output)
+        self.assertNotIn("changed", self.outputs())
+
+    def test_nightly_ignores_stable(self):
+        self.write(self.work, "fork.txt", "stable-only change\n")
+        self.commit(self.work, "stable-only change")
         self.git(self.work, "push", "-q", "origin", "stable")
         self.advance("v1.1.0-dev20260102")
         self.sync("nightly", "v1.1.0-dev20260102")
-        self.assertEqual((self.work / "fork.txt").read_text(), "new stable infrastructure\n")
+        self.assertEqual((self.work / "fork.txt").read_text(), "fork change\n")
+        self.assertEqual(self.outputs()["candidate"], "chore/sync-nightly-v1.1.0-dev20260102")
 
     def test_submodule_alignment_and_dirty_guard(self):
         module = self.root / "module"

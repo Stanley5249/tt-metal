@@ -1,27 +1,43 @@
-# Started by hand to validate a candidate, stable, or nightly on ttsim.
-# On integration branches, `release` drafts a release with the wheel, the
-# Tracy tools, and notes from git-cliff. FORK.md explains the fork workflows.
+# Validates one exact commit on ttsim. fork-sync calls it to fast-forward a
+# track to a validated update and draft its release; started by hand, it
+# validates the branch it runs on and, on stable or nightly, can draft a
+# release. Drafts carry the wheel and Tracy tools that the smoke tests used,
+# and notes from git-cliff. FORK.md explains the fork workflows.
 name: fork-release
 
 on:
   workflow_dispatch:
     inputs:
-      track:
-        description: "Track for build-only validation on a candidate branch"
-        type: choice
-        options: [stable, nightly]
-        default: stable
       release:
         description: "Draft a release once the smoke tests pass"
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      ref:
+        description: "Exact commit to validate, fast-forward the track to, and release"
+        required: true
+        type: string
+      promote:
+        description: "Fast-forward the track this run is on to ref"
+        type: boolean
+        default: false
+      release:
+        type: boolean
+        default: false
+    secrets:
+      FORK_SYNC_TOKEN:
+        required: false
 
 permissions: {}
 
-# Runs queue, since two releases would race for one label.
+# Runs on one branch queue, since two releases would race for one label.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: fork-release-${{ github.ref_name }}
   cancel-in-progress: false
+
+env:
+  REF: ${{ inputs.ref || github.sha }}
 
 jobs:
   validate:
@@ -32,8 +48,7 @@ jobs:
     permissions:
       contents: read
     with:
-      ref: ${{ github.sha }}
-      track: ${{ github.ref_name == 'nightly' && 'nightly' || inputs.track }}
+      ref: ${{ inputs.ref || github.sha }}
       label: ${{ needs.version.outputs.label || 'conda.test' }}
 
   version:
@@ -44,8 +59,8 @@ jobs:
     permissions:
       contents: write
     outputs:
-      base: ${{ steps.base.outputs.base }}
-      base-commit: ${{ steps.base.outputs.base-commit }}
+      base: ${{ steps.version.outputs.base }}
+      base-commit: ${{ steps.version.outputs.base-commit }}
       previous: ${{ steps.version.outputs.previous }}
       skip-tags: ${{ steps.version.outputs.skip-tags }}
       label: ${{ steps.version.outputs.label }}
@@ -53,35 +68,31 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TRACK: ${{ github.ref_name == 'nightly' && 'nightly' || inputs.track }}
     steps:
-      # Fail before any checked-out code runs with the write token.
-      - run: |
-          if [ "$TRACK" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Draft releases only on their matching integration branch"
-            exit 1
-          fi
-      # Full history without blobs, so git describe finds the upstream tag.
+      - if: github.ref_name != 'stable' && github.ref_name != 'nightly'
+        run: |
+          echo "::error::Draft releases only on stable or nightly"
+          exit 1
+      # The scripts come from this branch, not from REF, which may hold
+      # upstream's new commits. Full history without blobs, so git describe
+      # finds the upstream tag; fetch-depth 0 also fetches update branches.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - run: .github/scripts/fork-upstream-tags.sh
-      - id: base
-        run: bash .github/scripts/fork-version.sh "$TRACK" >> "$GITHUB_OUTPUT"
+      - run: .github/scripts/fork-upstream-tags.sh "$REF"
       # bash, unlike the default shell, sets pipefail, so a failed release list
       # stops the run instead of restarting the count at conda.1.
       - id: version
         shell: bash
-        env:
-          BASE: ${{ steps.base.outputs.base }}
         run: |
-          base=$BASE
+          metadata=$(bash .github/scripts/fork-version.sh "$GITHUB_REF_NAME" "$REF")
+          base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # git-cliff ignores --tag on a commit that already has a release tag.
-          head_release=$(git tag --points-at HEAD --list 'v*-conda.*')
+          head_release=$(git tag --points-at "$REF" --list 'v*-conda.*')
           if [ -n "$head_release" ]; then
-            echo "::error::HEAD is already released as $head_release"
+            echo "::error::$REF is already released as $head_release"
             exit 1
           fi
           # conda.N counts releases on one upstream tag, drafts included.
@@ -89,20 +100,41 @@ jobs:
             awk -F'-conda[.]' -v base="$base" '$1 == base && $2 ~ /^[0-9]+$/ {print $2}' |
             sort -n | tail -1)
           label="conda.$((${n:-0} + 1))"
-          # Notes cover HEAD's commits since the upstream base, minus those of
+          # Notes cover REF's commits since the upstream base, minus those of
           # earlier fork releases. After a sync those releases sit on the old
           # base, inside the range, so git-cliff skips their tags by name.
           # The notes job gets the base as a commit, since it fetches no
           # upstream tags.
-          released=$(git tag --merged HEAD --list 'v*-conda.*' | sed 's/\./\\./g' | paste -sd'|')
-          previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' 2>/dev/null || true)
+          released=$(git tag --merged "$REF" --list 'v*-conda.*' | sed 's/\./\\./g' | paste -sd'|')
+          previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' "$REF" 2>/dev/null || true)
           {
+            printf '%s\n' "$metadata" | grep -E '^base(-commit)?='
             echo "previous=$previous"
             echo "skip-tags=^($released)\$"
             echo "label=$label"
             echo "tag=$base-$label"
           } >> "$GITHUB_OUTPUT"
-          echo "Building $base-$label" >> "$GITHUB_STEP_SUMMARY"
+          echo "Building $base-$label from $REF" >> "$GITHUB_STEP_SUMMARY"
+
+  # Only this job holds the sync token, and it runs no repository code. It
+  # waits for the notes too, so only the draft itself can fail after the track
+  # moves; rerun that failed job to draft from the same artifacts.
+  promote:
+    if: inputs.promote
+    needs: [validate, notes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # force=false accepts only a fast-forward. If the track moved during
+      # validation, this fails and the next sync merges onto the new tip.
+      - run: |
+          gh api --method PATCH "repos/$GH_REPO/git/refs/heads/$GITHUB_REF_NAME" \
+            -f sha="$REF" -F force=false > /dev/null
+          echo "Fast-forwarded $GITHUB_REF_NAME to $REF" >> "$GITHUB_STEP_SUMMARY"
 
   notes:
     if: inputs.release
@@ -114,6 +146,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.REF }}
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
@@ -133,10 +166,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Only this job writes release assets, and it runs no build code.
+  # Only this job writes release assets, and it runs no build code. A skipped
+  # promotion, on a run started by hand, still permits the draft.
   release:
-    if: inputs.release
-    needs: [version, validate, notes]
+    if: ${{ !cancelled() && !failure() && inputs.release }}
+    needs: [version, validate, promote, notes]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -145,7 +179,7 @@ jobs:
       # The smoke logs stay in their artifacts.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: dist-${{ github.ref_name }}
+          name: dist
           path: assets/dist
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -160,6 +194,12 @@ jobs:
           if [ "$GITHUB_REF_NAME" = nightly ]; then
             flags+=(--prerelease --latest=false)
           fi
-          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" \
+          gh release create "$TAG" --draft --target "$REF" --title "$TAG" \
             "${flags[@]}" --notes-file assets/notes/release-notes.md \
             assets/dist/ttnn-*.whl assets/dist/tracy-tools-linux_x86_64.tar.gz
+          {
+            echo "Drafted $TAG at $REF with:"
+            echo '```text'
+            (cd assets/dist && sha256sum ttnn-*.whl tracy-tools-linux_x86_64.tar.gz)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

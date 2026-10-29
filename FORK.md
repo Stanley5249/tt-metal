@@ -4,32 +4,31 @@ This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) bui
 
 ## Branches
 
-`stable` is the default branch, based on an upstream release tag. `nightly` uses a selected nightly tag. Their upstream histories can diverge, so keep the tracks independent and preserve published history. The fork has no `main`.
+`stable` is the default branch, based on upstream's latest release. `nightly` is based on upstream's latest nightly tag. Their upstream histories diverge, so each track runs its own workflows and scripts from its own ref, and neither track is merged into the other. Preserve published history and published release tags. The fork has no `main`.
 
 Choose the integration method by the kind of change:
 
-| Change                           | Method                            |
-| -------------------------------- | --------------------------------- |
-| Fork-owned task                  | task branch, then fast-forward    |
-| Upstream update                  | merge tag, validate, fast-forward |
-| Shared infrastructure to nightly | copy stable's snapshot            |
-| Source patch to nightly          | cherry-pick and adapt             |
+| Change                     | Method                                  |
+| -------------------------- | --------------------------------------- |
+| Fork-owned task            | task branch, then fast-forward          |
+| Upstream update            | `fork-sync` merges, validates, promotes |
+| Shared change, other track | cherry-pick and adapt                   |
 
-Keep fork-owned changes focused, preferably one commit per change. Unpublished fork-owned task commits may be rebased onto the latest target before integration. Preserve published history and fix published changes with follow-ups. Once a candidate is validated, promote that exact SHA without rebasing, squashing, or adding another merge commit. Any change to the candidate requires validation of its new SHA.
+Keep fork-owned changes focused, preferably one commit per change. Unpublished fork-owned task commits may be rebased onto the latest target before integration. Fix published changes with follow-ups. A track moves only by fast-forward, and `fork-sync` moves it only to the commit that passed validation.
 
 ```text
-upstream releases -- v0.79.0 ---------------------------- v0.80.0
-                        \                                    \
-stable                   M -- infra change -- source patch -- M
-                                   |                |
-                              copy |                | cherry-pick
-                                   v                v
-nightly            M ------- infra snapshot -- source patch ----- M
-                  /                                              /
-upstream main -- v0.80.0-dev20261002 ----------------- v0.81.0-dev20261011
+upstream releases -- v0.79.0 ----------------------- v0.80.0
+                        \                               \
+stable                   M -- fork change -- fix ------- M
+                                              |
+                                              | cherry-pick
+                                              v
+nightly            M ----------------------- fix ------------ M
+                  /                                          /
+upstream main -- v0.80.0-dev20261002 ------------- v0.81.0-dev20261011
 ```
 
-Start fork-owned work on a task branch from stable. For nightly infrastructure updates, start a task branch from nightly and run `.github/scripts/fork-infra.sh copy` to take stable's snapshot. Paths in `.github/fork-infra` must stay identical on both tracks, and nightly's checks enforce that equality. Do not merge stable into nightly, because their upstream histories can differ.
+Start fork-owned work on a task branch from either track. Stable also serves as the base for experiments. When a change applies to the other track, cherry-pick it onto a task branch from that track and adapt it. Nothing forces the tracks' fork files to match, so review drift with `git diff stable nightly -- FORK.md justfile pixi.toml .github/scripts .github/workflows/fork-*.yaml` when porting.
 
 The fork's source patches, all maintained here:
 
@@ -46,41 +45,42 @@ The fork's source patches, all maintained here:
 
 ## Syncing with upstream
 
-`fork-sync` prepares and fully validates candidates on a schedule or by hand. Stable selects a published release; nightly selects a published nightly tag. SFPI and ttsim follow that tag's pins. `tt_metal/ttsim-release` names the patched ttsim build to download, a [Stanley5249/ttsim](https://github.com/Stanley5249/ttsim) release tagged `<ttsim-version>-steps.N`, whose wall clock gives each simulator step its own time so device profiler timestamps never tie. When an upstream update moves `ttsim-version`, release the matching build there first and update `ttsim-release`, or `just fetch-ttsim` refuses the mismatch. Runs with no upstream update skip building and compiler cache access.
+`fork-sync` runs on the track it updates. Its schedule runs on stable, the default branch, and starts a separate run on nightly so nightly uses its own workflow files. Stable selects upstream's `releases/latest`; nightly selects the newest published `vX.Y.Z-devN` release. SFPI and ttsim follow that tag's pins. `tt_metal/ttsim-release` names the patched ttsim build to download, a [Stanley5249/ttsim](https://github.com/Stanley5249/ttsim) release tagged `<ttsim-version>-steps.N`, whose wall clock gives each simulator step its own time so device profiler timestamps never tie. When an upstream update moves `ttsim-version`, release the matching build there first and update `ttsim-release` on that track, or `just fetch-ttsim` refuses the mismatch.
 
-1. Run `fork-sync` for the track and upstream tag. It prepares a candidate by merging the tag with a merge commit, not by rebasing fork patches. Review the candidate in the Actions summary and retire source patches when that track's upstream provides equivalent behavior.
-2. If preparation needs manual work, commit or stash user edits, then run `.github/scripts/fork-sync.sh <stable|nightly> <tag>` locally. For conflicts, resolve and commit the merge, then rerun the command. The script preserves source edits, aligns submodules, and resumes an existing candidate branch.
-3. Push a manually prepared candidate with `git push origin HEAD` from that branch, then rerun `fork-sync` with the same track and exact upstream tag. It reuses the remote candidate, skips pushing when the SHA already matches, and runs full validation. If preparation changes the candidate again, push the new commit before retrying.
-4. After validation and approval, run `git push origin <validated-sha>:refs/heads/<track>`. This fast-forwards the track to the validated candidate. If the target moved and the push fails, prepare and validate a fresh candidate before retrying.
-5. Start `fork-release` on the integration branch with `release` enabled. It validates again and drafts a release. Review and publish after approval; nightly releases are prereleases.
+One run does the whole update:
 
-When the candidate changes `.github/workflows/`, GitHub's built-in `GITHUB_TOKEN` cannot push it. Use steps 2 and 3 with your own GitHub identity that can write workflow files. No extra repository secret is needed, and the tracer's `TRACER_DISPATCH_TOKEN` is unrelated. Keep upstream workflows disabled as described below, because a push with your own identity can trigger workflows.
+1. `fork-sync.sh <track> [tag]` resolves the tag to a commit and stops when the track already contains it. Otherwise it merges that commit into `chore/sync-<track>-<tag>` with a merge commit, never by rebasing fork patches, and resumes that branch when it already exists on the fork.
+2. The workflow pushes the update branch, then `fork-release` numbers the release, validates that exact commit, fast-forwards the track to it, and drafts `<upstream-tag>-conda.N` with the artifacts that the smoke tests used.
+3. Review the draft and the Actions summary, retire source patches when upstream provides equivalent behavior, and publish the draft by hand. Nightly drafts are prereleases.
 
-For build-only validation, start `fork-release` on the candidate with its matching `track` and `release` disabled. It uses `conda.test` and Contents read permission. Release numbering and write access belong to release preparation and drafting. Keep local work to preparation and `just ci`; full builds and simulator tests run on GitHub Actions.
+The script exits with status 2 on a merge conflict and leaves the merge in progress. Any other failure, such as a fetch or pin check, exits with another status and is not a conflict. To resolve a conflict, commit or stash local edits, run `.github/scripts/fork-sync.sh <track> <tag>` from a full clone with an `upstream` remote, resolve and commit the merge, rerun the command, push the update branch with `git push origin HEAD`, and rerun `fork-sync` on the track with the same tag. If the track moves during validation, promotion fails and nothing is drafted. The next run resumes the update branch and merges the moved track into it, keeping any manual resolution. If only the draft fails after promotion, rerun that failed job, which drafts from the same artifacts; a new sync run would find the track up to date.
+
+Upstream updates change `.github/workflows/`, which `GITHUB_TOKEN` cannot push. The `FORK_SYNC_TOKEN` secret, a fine-grained token for this repository with Contents and Workflows write, pushes the update branch and moves the track. Only those two steps read it, after the merge code has finished; builds and tests use read-only tokens. Pushes with this token trigger push workflows like a person's push.
+
+For build-only validation, start `fork-release` on any branch with `release` disabled. It labels the wheel `conda.test` and uses Contents read permission. To release a fork-owned change without an upstream update, start `fork-release` on stable or nightly with `release` enabled; it drafts from the commit it validated and does not move the track. Keep local work to preparation and `just ci`; full builds and simulator tests run on GitHub Actions.
 
 ## Workflows
 
 Fork workflows match `.github/workflows/fork-*.yaml`.
 
 ```text
-fork-checks    push              checks -- disable-upstream (stable, nightly)
-fork-sync      schedule/manual  fork-update [stable, nightly]
-                                  prepare -- fork-validate
-fork-release   manual           fork-validate (build-only)
-                                version -- fork-validate -- release (draft)
-                                       +-- notes -----------+
-fork-validate  reusable         checks + metadata -- build -- smoke [wh, bh]
+fork-checks    push              checks -- disable-upstream (tracks, update branches)
+fork-sync      schedule/manual   nightly (schedule only: starts nightly's run)
+                                 prepare -- fork-release (when updated: promote, release)
+fork-release   manual/reusable   version --+-- fork-validate --+-- promote -- release (draft)
+                                           +-- notes ----------+
+fork-validate  reusable          checks + metadata -- build -- smoke [wh, bh]
 fork-notify    published/manual  notify-tracer
 ```
 
-- `fork-checks` runs `just ci`, which includes `fork-sync-test.py`. On nightly it also runs `fork-infra.sh check`. On stable and nightly it then disables upstream workflows, including newly added ones.
-- `fork-update` prepares and pushes candidates with Contents write permission, then explicitly calls validation because token pushes may skip push workflows. Conflicts appear in the Actions summary and preparation log.
-- `fork-validate` checks pins and nightly infrastructure, then builds and tests the clean wheel on both simulator architectures, including Tracy and device profiling. Build jobs use Contents read permission and save ccache on failure.
-- `fork-select-tag.sh` picks and validates a track's upstream tag. `fork-version.sh` checks the upstream base and derives the wheel version. CI fetches upstream tags from tenstorrent because fork pushes carry none.
-- `fork-release` counts drafts when choosing `conda.N`. Release notes use git-cliff and `.github/cliff.toml`; only matching integration branches can draft releases after validation.
+- `fork-checks` runs `just ci`, which includes `fork-sync-test.py`. On the tracks and `chore/sync-*` branches it then disables upstream workflows, including newly added ones.
+- `fork-sync` prepares the update branch from a full clone, because the merge reads upstream objects that the fork will not serve to a partial clone. Conflicts and other errors appear in the Actions summary and preparation log.
+- `fork-validate` checks pins, then builds and tests the clean wheel on both simulator architectures, including Tracy, device profiling, and NoC tracing. It infers the track from the upstream base. Build jobs use Contents read permission and save ccache on failure.
+- `fork-select-tag.sh` picks and validates a track's upstream tag. `fork-version.sh` checks the upstream base and derives the track and wheel version. CI fetches upstream tags from tenstorrent because fork pushes carry none.
+- `fork-release` chooses `conda.N` before building, counting drafts, and builds the wheel with that version. Its scripts come from the branch it runs on, not from the commit it validates. Release notes use git-cliff and `.github/cliff.toml`. Only stable and nightly can draft releases, and the draft summary lists the assets' SHA-256 digests. Runs on one branch queue, so two drafts never race for a label.
 - `fork-notify` dispatches `tt-metal-released` to `tt-vllm-tracer`, whose `sync-metal` workflow opens the dependency PR. Only `fork-notify` reads `TRACER_DISPATCH_TOKEN`, scoped to tracer's Contents write permission. Dispatch it with a tag to retry without rebuilding.
 
-Upstream workflows stay in the tree, and `disable-upstream` keeps them off, because their schedules would queue for Tenstorrent's self-hosted runners. Use candidate branches instead of internal PRs, and keep `main` absent, issues off, and Dependabot off to avoid inherited triggers.
+Upstream workflows stay in the tree, and `disable-upstream` keeps them off, because their schedules would queue for Tenstorrent's self-hosted runners. A sync can add new ones, which start active until the next push to a track or update branch disables them. Use update branches instead of internal PRs, and keep `main` absent, issues off, and Dependabot off to avoid inherited triggers.
 
 ## Side effects
 

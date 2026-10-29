@@ -8,10 +8,6 @@ on:
         description: "Exact commit to validate"
         required: true
         type: string
-      track:
-        description: "stable or nightly"
-        required: true
-        type: string
       label:
         description: "Wheel local version"
         default: conda.test
@@ -38,11 +34,6 @@ jobs:
           environments: ci
           activate-environment: true
       - run: just ci
-      # Nightly keeps stable's fork infrastructure; FORK.md explains why.
-      - if: inputs.track == 'nightly'
-        run: |
-          git fetch -q --no-tags --depth=1 origin stable:refs/remotes/origin/stable
-          .github/scripts/fork-infra.sh check
 
   metadata:
     runs-on: ubuntu-24.04
@@ -51,6 +42,7 @@ jobs:
       contents: read
     outputs:
       base: ${{ steps.version.outputs.base }}
+      track: ${{ steps.version.outputs.track }}
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,17 +54,16 @@ jobs:
       - run: .github/scripts/fork-upstream-tags.sh
       - id: version
         env:
-          TRACK: ${{ inputs.track }}
           LABEL: ${{ inputs.label }}
         run: |
-          metadata=$(bash .github/scripts/fork-version.sh "$TRACK" HEAD "$LABEL")
+          # The upstream base names the track, so candidates need no track input.
+          metadata=$(bash .github/scripts/fork-version.sh auto HEAD "$LABEL")
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # These dependencies belong to upstream, including on a patched candidate.
           git diff --exit-code "$base" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
           printf '%s\n' "$metadata" >> "$GITHUB_OUTPUT"
-          # Promotion compares this commit with the one it fast-forwards to.
           version=$(printf '%s\n' "$metadata" | awk -F= '$1 == "version" {print $2}')
-          echo "Validating $(git rev-parse HEAD) on $TRACK as ttnn $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Validating $(git rev-parse HEAD) as ttnn $version" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: [checks, metadata]
@@ -114,10 +105,10 @@ jobs:
           path: |
             ~/.cache/ccache
             ~/.cache/cpm
-          key: build-${{ inputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
+          key: build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
           restore-keys: |
-            build-${{ inputs.track }}-${{ needs.metadata.outputs.base }}-
-            build-${{ inputs.track }}-
+            build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-
+            build-${{ needs.metadata.outputs.track }}-
             build-stable-
       - id: build
         run: just build
@@ -127,12 +118,12 @@ jobs:
           path: |
             ~/.cache/ccache
             ~/.cache/cpm
-          key: build-${{ inputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
+          key: build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
       - run: just wheel --label "$LABEL"
       - run: just tracy-tools
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dist-${{ inputs.track }}
+          name: dist
           path: |
             dist/ttnn-*.whl
             dist/tracy-tools-linux_x86_64.tar.gz
@@ -161,7 +152,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: dist-${{ inputs.track }}
+          name: dist
           path: dist
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
@@ -188,7 +179,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: smoke-${{ inputs.track }}-${{ matrix.arch }}
+          name: smoke-${{ matrix.arch }}
           path: generated/
           if-no-files-found: warn
           retention-days: 7

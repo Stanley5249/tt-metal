@@ -1,5 +1,6 @@
-# Checks pushes to stable, nightly, and task branches. On stable and nightly it
-# also disables upstream's workflows. FORK.md explains the fork workflows.
+# Checks pushes to stable, nightly, and task branches. On the tracks and their
+# update branches it also disables upstream's workflows. FORK.md explains the
+# fork workflows.
 name: fork-checks
 
 on:
@@ -32,16 +33,13 @@ jobs:
           environments: ci
           activate-environment: true
       - run: just ci
-      # Nightly keeps stable's fork infrastructure; FORK.md explains why.
-      - if: github.ref == 'refs/heads/nightly'
-        run: |
-          git fetch -q --no-tags --depth=1 origin stable:refs/remotes/origin/stable
-          .github/scripts/fork-infra.sh check
 
   # Upstream's workflows stay in the tree but must not run here; a sync adds
   # new ones, which start out active. After checks, GitHub has registered them.
+  # fork-sync pushes update branches and promotions with its own token, so
+  # those pushes trigger this workflow like a person's push.
   disable-upstream:
-    if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly'
+    if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly' || startsWith(github.ref, 'refs/heads/chore/sync-')
     needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 5

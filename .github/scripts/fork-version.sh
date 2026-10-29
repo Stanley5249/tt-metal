@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Resolve already-fetched upstream tags into Actions outputs and a wheel version.
 # Usage: fork-version.sh <stable|nightly|auto> [ref=HEAD] [label]
-# auto lets local wheel packaging infer the track from the upstream tag.
+# auto infers the track from the upstream tag; a named track must match it.
 set -euo pipefail
 
 track=${1:?usage: fork-version.sh <stable|nightly|auto> [ref] [label]}
@@ -23,9 +23,13 @@ if [[ ! "$base" =~ $pattern ]]; then
     echo "$track cannot build on upstream $base" >&2
     exit 1
 fi
+track=stable
+if [[ "$base" == *-dev* ]]; then
+    track=nightly
+fi
 version=${base#v}
 version=${version/-dev/.dev}
 if [ -n "$label" ]; then
     version="$version+$label"
 fi
-printf 'base=%s\nbase-commit=%s\nversion=%s\n' "$base" "$(git rev-parse "$base^{commit}")" "$version"
+printf 'base=%s\nbase-commit=%s\ntrack=%s\nversion=%s\n' "$base" "$(git rev-parse "$base^{commit}")" "$track" "$version"
