@@ -88,6 +88,14 @@ if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
 fi
 # SFPI and ttsim always follow the selected upstream tag.
 git diff --exit-code "$upstream_sha" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
+# just fetch-ttsim refuses a ttsim-release that does not build the pinned ttsim,
+# so stop before validation spends a build on it.
+read -r _ ttsim_release < tt_metal/ttsim-release
+ttsim=$(tr -d '[:space:]' < tt_metal/ttsim-version)
+if [[ "$ttsim_release" != "$ttsim"-* ]]; then
+    echo "tt_metal/ttsim-release names $ttsim_release, not a build of ttsim $ttsim; release one in Stanley5249/ttsim, commit the new name on $candidate, and rerun" >&2
+    exit 1
+fi
 git submodule sync --recursive
 git submodule update --init --recursive
 sha=$(git rev-parse HEAD)
