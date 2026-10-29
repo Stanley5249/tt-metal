@@ -1,4 +1,7 @@
-# Runs from stable, the default branch. Updates are validated, then reviewed.
+# Merges the latest upstream tag into the track this run is on, validates the
+# merge, fast-forwards the track, and drafts its release. The schedule runs on
+# stable, the default branch, and starts nightly's own run from nightly's ref.
+# FORK.md explains the fork workflows.
 name: fork-sync
 
 on:
@@ -7,27 +10,111 @@ on:
     - cron: "23 21 * * 0,3"
   workflow_dispatch:
     inputs:
-      track:
-        description: "Track to prepare and validate"
-        type: choice
-        options: [both, stable, nightly]
-        default: both
       tag:
-        description: "Exact upstream tag, or empty for latest; select one track when setting a tag"
+        description: "Exact upstream tag, or empty for the track's latest"
         type: string
         default: ""
 
 permissions: {}
 
+concurrency:
+  group: fork-sync-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  update:
-    strategy:
-      fail-fast: false
-      matrix:
-        track: ${{ fromJSON(inputs.track == 'stable' && '["stable"]' || inputs.track == 'nightly' && '["nightly"]' || '["stable", "nightly"]') }}
-    uses: ./.github/workflows/fork-update.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
+  # GITHUB_TOKEN may start workflow_dispatch runs, unlike most events.
+  nightly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: gh workflow run fork-sync.yaml --ref nightly
+
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.prepare.outputs.changed }}
+      sha: ${{ steps.prepare.outputs.sha }}
+    env:
+      TRACK: ${{ github.ref_name }}
+      REQUESTED_TAG: ${{ inputs.tag || '' }}
+    steps:
+      - if: github.ref_name != 'stable' && github.ref_name != 'nightly'
+        run: |
+          echo "::error::Run fork-sync on stable or nightly"
+          exit 1
+      # A full clone, because the merge reads blobs that a partial clone would
+      # fetch lazily from the fork, which refuses objects only upstream has.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/tenstorrent/tt-metal.git
+          # Run the checked-out script even when the merge changes it.
+          cp .github/scripts/fork-sync.sh "$RUNNER_TEMP/fork-sync.sh"
+          bash "$RUNNER_TEMP/fork-sync.sh" "$TRACK" "$REQUESTED_TAG"
+      # GITHUB_TOKEN cannot push upstream's workflow changes; only this step
+      # holds the sync token, after the merge code has finished.
+      - if: steps.prepare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          CANDIDATE: ${{ steps.prepare.outputs.candidate }}
+          SHA: ${{ steps.prepare.outputs.sha }}
+        run: |
+          gh auth setup-git
+          git push origin "$SHA:refs/heads/$CANDIDATE"
+      - if: always()
+        env:
+          TAG: ${{ steps.prepare.outputs.tag }}
+          CANDIDATE: ${{ steps.prepare.outputs.candidate }}
+          SHA: ${{ steps.prepare.outputs.sha }}
+          CHANGED: ${{ steps.prepare.outputs.changed }}
+          PREVIOUS: ${{ steps.prepare.outputs.previous }}
+        run: |
+          {
+            echo "## Upstream update: $TRACK"
+            echo "- Tag: $TAG"
+            echo "- Update branch: $CANDIDATE"
+            echo "- Commit: $SHA"
+            echo "- Update needed: $CHANGED"
+            if [ "$CHANGED" = true ]; then
+              echo "Review separately:"
+              echo "- Fork patches: git diff $TAG $SHA"
+              echo "- Upstream changes: git diff $PREVIOUS $TAG"
+              merge=$(git log --first-parent --merges -1 --format=%H "origin/$TRACK..$SHA")
+              echo "- Conflict resolutions: git show --remerge-diff $merge"
+            fi
+            if git rev-parse --verify -q MERGE_HEAD > /dev/null; then
+              echo "Merge conflicts; resolve them locally with fork-sync.sh, push $CANDIDATE, and rerun:"
+              git diff --name-only --diff-filter=U | sed 's/^/- /'
+            elif [ -z "$CHANGED" ]; then
+              echo "Preparation failed before a result; the prepare log names the error."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    uses: ./.github/workflows/fork-release.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: write
     with:
-      track: ${{ matrix.track }}
-      tag: ${{ inputs.tag || '' }}
+      ref: ${{ needs.prepare.outputs.sha }}
+      promote: true
+      release: true
+    secrets:
+      FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}

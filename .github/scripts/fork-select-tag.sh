@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Print a track's upstream tag: the requested one, or the latest published.
-# fork-sync.sh and fork-update validate tags here; fork-sync.sh checks ancestry.
+# fork-sync.sh validates tags here and checks their ancestry.
 # Usage: fork-select-tag.sh <stable|nightly> [tag]
 set -euo pipefail
 
