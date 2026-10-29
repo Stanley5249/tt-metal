@@ -42,6 +42,7 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "remote", "rename", "origin", "upstream")
         self.git(self.work, "remote", "add", "origin", str(self.origin))
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
+        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim upstream-ttsim-steps.1\n")
         for script in ["fork-select-tag.sh", "fork-upstream-tags.sh", "fork-version.sh"]:
             self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
         self.write(self.work, "fork.txt", "fork change\n")
@@ -76,7 +77,6 @@ class ForkSyncTests(unittest.TestCase):
 
     def advance(self, tag="v1.0.1"):
         self.write(self.upstream, "source.txt", "updated\n")
-        self.write(self.upstream, "tt_metal/ttsim-version", "new-upstream-ttsim\n")
         self.commit(self.upstream, "upstream update")
         self.git(self.upstream, "tag", tag)
 
@@ -131,7 +131,7 @@ class ForkSyncTests(unittest.TestCase):
         self.advance()
         self.sync()
         sha = self.head()
-        self.assertEqual((self.work / "tt_metal/ttsim-version").read_text(), "new-upstream-ttsim\n")
+        self.assertEqual((self.work / "source.txt").read_text(), "updated\n")
         self.sync()
         self.assertEqual(self.head(), sha)
         outputs = self.outputs()
@@ -228,6 +228,16 @@ class ForkSyncTests(unittest.TestCase):
         self.advance()
         self.sync(success=False, status=1)
         self.assertNotIn("changed", self.outputs())
+
+    def test_ttsim_bump_needs_a_matching_release(self):
+        self.write(self.upstream, "tt_metal/ttsim-version", "new-upstream-ttsim\n")
+        self.advance()
+        self.assertIn("not a build of ttsim new-upstream-ttsim", self.sync(success=False, status=1))
+        self.assertNotIn("changed", self.outputs())
+        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim new-upstream-ttsim-steps.1\n")
+        self.commit(self.work, "use the new ttsim build")
+        self.sync()
+        self.assertEqual(self.outputs()["sha"], self.head())
 
     def test_fetch_failure_is_not_a_conflict(self):
         self.advance()
