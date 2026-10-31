@@ -87,7 +87,7 @@ class FakeGitHub:
             assert "--verify-tag" in args and tag in self.tags, "the tag must exist before the draft"
             files = [a for a in args if a.endswith((".whl", ".tar.gz"))]
             notes = Path(args[args.index("--notes-file") + 1]).read_text()
-            entry = published(tag, draft=True) | {"id": len(self.releases) + 1, "prerelease": "--prerelease" in args}
+            entry = published(tag, draft=True, target=args[args.index("--target") + 1]) | {"id": len(self.releases) + 1, "prerelease": "--prerelease" in args}
             self.releases.append(entry | {"body": notes, "assets": self.assets(files)})
         elif args[:2] == ["release", "upload"]:
             target = self.find(args[2])
@@ -225,6 +225,13 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(release.Fail, message):
                     release.publish("v1.0.0-conda.1", A, self.dist, self.notes)
                 self.assertNotIn("draft=false", [field for w in fake.writes for field in w])
+
+    def test_wrong_draft_target_is_rejected_before_any_write(self):
+        draft = published("v1.0.0-conda.1", draft=True, target=B)
+        fake = self.use(FakeGitHub({"v1.0.0-conda.1": A}, [draft]))
+        with self.assertRaisesRegex(release.Fail, "targets another commit"):
+            release.publish("v1.0.0-conda.1", A, self.dist, self.notes)
+        self.assertEqual(fake.writes, [])
 
     def test_published_release_is_checked_without_artifacts(self):
         fake = self.use(FakeGitHub({"v1.0.0-conda.1": A}))

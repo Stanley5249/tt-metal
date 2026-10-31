@@ -160,7 +160,7 @@ def verify(release, tag, sha, draft, expected=None):
     if release["prerelease"] != (channel(tag) == "nightly"):
         raise Fail(f"{tag} has prerelease={release['prerelease']} on the {channel(tag)} channel")
     target = release.get("target_commitish", "")
-    if re.fullmatch(r"[0-9a-f]{40}", target) and target != sha:
+    if (draft or re.fullmatch(r"[0-9a-f]{40}", target)) and target != sha:
         raise Fail(f"{tag} targets {target}, not {sha}")
     commit = tag_commit(tag)
     if commit != sha:
@@ -199,6 +199,9 @@ def publish(tag, sha, dist, notes):
     if release and not release["draft"]:
         raise Fail(f"{tag} is already published; it never changes")
     if release:
+        # Check identity before changing even an unpublished release.
+        if release.get("target_commitish") != sha or tag_commit(tag) != sha:
+            raise Fail(f"draft {tag} targets another commit, not {sha}")
         # A draft is not public yet, so a partial upload may be replaced, but
         # its notes stay: git-cliff cannot regenerate them once the tag exists.
         for asset in release["assets"]:
@@ -211,7 +214,7 @@ def publish(tag, sha, dist, notes):
         gh("api", "-X", "PATCH", f"repos/{repo()}/releases/{release['id']}", *fields)
     else:
         flags = ["--prerelease"] if nightly else []
-        gh("release", "create", tag, "--verify-tag", "--draft", "--title", tag, "--notes-file", notes, *flags, *files)
+        gh("release", "create", tag, "--verify-tag", "--target", sha, "--draft", "--title", tag, "--notes-file", notes, *flags, *files)
     release = require(tag)
     verify(release, tag, sha, draft=True, expected=expected)
     latest = newest(tag, releases())
