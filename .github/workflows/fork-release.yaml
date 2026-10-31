@@ -159,6 +159,23 @@ jobs:
           GIT_CLIFF_SKIP_TAGS: ${{ needs.version.outputs.skip-tags }}
           UPSTREAM_BASE: ${{ needs.version.outputs.base }}
           PREVIOUS_RELEASE: ${{ needs.version.outputs.previous }}
+      # An upstream-only merge may leave no unreleased conventional commits,
+      # so git-cliff can produce an empty file even with render_always enabled.
+      - name: Describe upstream-only updates
+        env:
+          BASE: ${{ needs.version.outputs.base }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PREVIOUS: ${{ needs.version.outputs.previous }}
+        run: |
+          if [ ! -s release-notes.md ]; then
+            {
+              echo "Built from tt-metal [$BASE](https://github.com/tenstorrent/tt-metal/releases/tag/$BASE). [FORK.md](https://github.com/Stanley5249/tt-metal/blob/$TAG/FORK.md) lists the patches."
+              if [ -n "$PREVIOUS" ]; then
+                echo
+                echo "**Full Changelog**: [$PREVIOUS...$TAG](https://github.com/Stanley5249/tt-metal/compare/$PREVIOUS...$TAG)"
+              fi
+            } > release-notes.md
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: notes
