@@ -108,16 +108,16 @@ def plan(base, sha, tags, all_releases, resume):
         if r["draft"] and r["tag_name"] not in tags and r["target_commitish"] == sha and CONDA.fullmatch(r["tag_name"])
     }
     if len(at_sha) > 1:
-        raise Fail(f"{sha} carries several release tags: {', '.join(sorted(at_sha))}; delete the unpublished extras")
+        raise Fail(f"{sha} carries several release tags: {', '.join(sorted(at_sha))}; investigate the conflicting tags without changing published history")
     if at_sha:
         tag = at_sha.pop()
         if CONDA.fullmatch(tag)[1] != base:
             raise Fail(f"{sha} is released as {tag}, not on {base}")
         release = by_tag.get(tag)
         return {"action": "notify" if release and not release["draft"] else "build", "tag": tag}
-    # fork-release validates only a track's tip, so once the failed run can
-    # no longer be rerun, the unfinished release can only be deleted.
-    retry = "rerun the failed jobs of the fork-release run that started it, or delete it"
+    # Report unfinished intent even after the track moves; never discard tags
+    # to get past a failed publication.
+    retry = "rerun the failed jobs of the fork-release run that started it; preserve the tag and validated assets"
     for t in sorted(tags):
         m = CONDA.fullmatch(t)
         if m and m[1] == base and t not in by_tag:
