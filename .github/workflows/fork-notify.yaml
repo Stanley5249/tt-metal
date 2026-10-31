@@ -1,5 +1,8 @@
-# Tells tt-vllm-tracer about a published fork release; drafts never notify. A
-# manual run retries one tag. FORK.md explains the fork workflows.
+# Tells tt-vllm-tracer about a published fork release; drafts never notify.
+# fork-release starts it for the newest release on a channel, because its
+# GITHUB_TOKEN publication raises no release event; a release published by a
+# person raises one. A manual run retries one tag. FORK.md explains the fork
+# workflows.
 name: fork-notify
 
 on:

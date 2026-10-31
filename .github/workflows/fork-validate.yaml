@@ -61,6 +61,12 @@ jobs:
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # These dependencies belong to upstream, including on a patched candidate.
           git diff --exit-code "$base" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
+          read -r _ ttsim_release < tt_metal/ttsim-release
+          ttsim=$(tr -d '[:space:]' < tt_metal/ttsim-version)
+          if [[ "$ttsim_release" != "$ttsim"-steps.* || ! "${ttsim_release#"$ttsim"-steps.}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::tt_metal/ttsim-release names $ttsim_release, not a $ttsim-steps.N build"
+            exit 1
+          fi
           printf '%s\n' "$metadata" >> "$GITHUB_OUTPUT"
           version=$(printf '%s\n' "$metadata" | awk -F= '$1 == "version" {print $2}')
           echo "Validating $(git rev-parse HEAD) as ttnn $version" >> "$GITHUB_STEP_SUMMARY"
@@ -121,12 +127,29 @@ jobs:
           key: build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
       - run: just wheel --label "$LABEL"
       - run: just tracy-tools
+      # The manifest ties the artifacts to this commit; smoke tests and the
+      # release check every file against it.
+      - env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$REF" ]; then
+            echo "::error::Checked out $(git rev-parse HEAD), not $REF"
+            exit 1
+          fi
+          python3 .github/scripts/fork-release.py manifest dist "$REF" > "$RUNNER_TEMP/sums"
+          {
+            echo "Built from $REF:"
+            echo '```text'
+            cat "$RUNNER_TEMP/sums"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: |
             dist/ttnn-*.whl
             dist/tracy-tools-linux_x86_64.tar.gz
+            dist/fork-manifest.json
           if-no-files-found: error
           retention-days: 7
 
@@ -161,6 +184,9 @@ jobs:
           cache: true
           environments: wheel
           activate-environment: wheel
+      - env:
+          REF: ${{ inputs.ref }}
+        run: python .github/scripts/fork-release.py check dist "$REF"
       - run: uv pip install dist/ttnn-*.whl
       - run: just fetch-ttsim --arch "$ARCH"
       - run: python .github/scripts/fork-smoke.py
