@@ -210,7 +210,7 @@ jobs:
           RELEASE: ${{ inputs.release }}
         run: |
           update() {
-            jq -nc --arg name "$1" --arg before "$2" --arg after "$REF" '{name: $name, beforeOid: $before, afterOid: $after}'
+            jq -nc --arg name "$1" --arg before "$2" --arg after "$REF" '{name: $name, beforeOid: $before, afterOid: $after, force: false}'
           }
           updates=()
           if [ "$PROMOTE" = true ]; then
