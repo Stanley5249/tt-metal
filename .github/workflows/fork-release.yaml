@@ -175,10 +175,10 @@ jobs:
           retention-days: 7
 
   # Only this job holds the sync token, and it runs no repository code. It
-  # moves the track, then tags ref, so a release always follows a promotion;
-  # a failure between the two leaves the track moved without a tag, which
-  # only a rerun of this job repairs. Both steps are idempotent. It waits for
-  # the notes too, so nothing after the promotion depends on new output.
+  # moves the track and tags ref in one atomic ref update, so a moved track
+  # always carries its release tag and no tag names an update commit that
+  # missed the track. A rerun updates only what is still missing. It waits
+  # for the notes too, so nothing after the promotion depends on new output.
   ref:
     if: ${{ !cancelled() && (inputs.promote || inputs.release) && needs.version.outputs.action != 'none' && (needs.validate.result == 'success' || needs.version.outputs.action == 'notify') && (needs.notes.result == 'success' || needs.version.outputs.action != 'build') }}
     needs: [version, validate, notes]
@@ -199,37 +199,54 @@ jobs:
           gh workflow list --all -L 500 --json path,state \
             -q '.[] | select(.state == "active" and (.path | startswith(".github/workflows/fork-") | not)) | .path' |
             xargs -rn1 gh workflow disable
-      # force=false accepts only a fast-forward. If the track moved during
-      # validation, this fails and the next sync merges onto the new tip.
-      - if: inputs.promote
+      # Each update names the value it replaces, and force stays off, so the
+      # track only fast-forwards from the tip read here and the tag must not
+      # exist yet. If the track moved during validation, nothing changes and
+      # the next sync merges onto the new tip. An existing tag must name REF.
+      - shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          PROMOTE: ${{ inputs.promote }}
+          RELEASE: ${{ inputs.release }}
         run: |
-          gh api --method PATCH "repos/$GH_REPO/git/refs/heads/$GITHUB_REF_NAME" \
-            -f sha="$REF" -F force=false > /dev/null
-          echo "Fast-forwarded $GITHUB_REF_NAME to $REF" >> "$GITHUB_STEP_SUMMARY"
-      # The tag records the intent to release REF, so a later sync finishes
-      # the release even if this run stops. An existing tag must name REF.
-      - if: inputs.release
-        env:
-          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
-        run: |
-          if found=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2> "$RUNNER_TEMP/tag.err"); then
-            read -r type sha <<< "$found"
-            if [ "$type" = tag ]; then
-              sha=$(gh api "repos/$GH_REPO/git/tags/$sha" --jq .object.sha)
+          update() {
+            jq -nc --arg name "$1" --arg before "$2" --arg after "$REF" '{name: $name, beforeOid: $before, afterOid: $after}'
+          }
+          updates=()
+          if [ "$PROMOTE" = true ]; then
+            tip=$(gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+            if [ "$tip" != "$REF" ]; then
+              updates+=("$(update "refs/heads/$GITHUB_REF_NAME" "$tip")")
             fi
-            if [ "$sha" != "$REF" ]; then
-              echo "::error::Tag $TAG points to $sha, not $REF"
+          fi
+          if [ "$RELEASE" = true ]; then
+            if found=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2> "$RUNNER_TEMP/tag.err"); then
+              read -r type sha <<< "$found"
+              if [ "$type" = tag ]; then
+                sha=$(gh api "repos/$GH_REPO/git/tags/$sha" --jq .object.sha)
+              fi
+              if [ "$sha" != "$REF" ]; then
+                echo "::error::Tag $TAG points to $sha, not $REF"
+                exit 1
+              fi
+            elif grep -q 'HTTP 404' "$RUNNER_TEMP/tag.err"; then
+              updates+=("$(update "refs/tags/$TAG" 0000000000000000000000000000000000000000)")
+            else
+              cat "$RUNNER_TEMP/tag.err" >&2
               exit 1
             fi
-            echo "Tag $TAG already names $REF" >> "$GITHUB_STEP_SUMMARY"
-          elif grep -q 'HTTP 404' "$RUNNER_TEMP/tag.err"; then
-            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$REF" > /dev/null
-            echo "Tagged $REF as $TAG" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${#updates[@]}" -gt 0 ]; then
+            repo_id=$(gh api "repos/$GH_REPO" --jq .node_id)
+            printf '%s\n' "${updates[@]}" |
+              jq -s --arg repo "$repo_id" '{
+                query: "mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }",
+                variables: {input: {repositoryId: $repo, refUpdates: .}}
+              }' |
+              gh api graphql --input - > /dev/null
+            printf '%s\n' "${updates[@]}" | jq -r '"Moved \(.name) to \(.afterOid)"' >> "$GITHUB_STEP_SUMMARY"
           else
-            cat "$RUNNER_TEMP/tag.err" >&2
-            exit 1
+            echo "The refs already name $REF" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Only this job writes releases, and it runs no build code: the script comes
