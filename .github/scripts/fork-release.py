@@ -95,8 +95,10 @@ def plan(base, sha, tags, all_releases, resume):
 
     tags maps the fork's conda tag names to their commits. A tag or a tagless
     draft at sha means a release of sha was started, so it is finished rather
-    than numbered again. Without one, resume does nothing, and a new release
-    takes the next number on base after every tag and release, drafts included.
+    than numbered again. An unfinished release of another commit on base stops
+    every run, resumes included, so it is never left behind silently. Without
+    those, resume does nothing, and a new release takes the next number on
+    base after every tag and release, drafts included.
     """
     by_tag = {r["tag_name"]: r for r in all_releases}
     at_sha = {t for t, commit in tags.items() if commit == sha and CONDA.fullmatch(t)}
@@ -113,18 +115,19 @@ def plan(base, sha, tags, all_releases, resume):
             raise Fail(f"{sha} is released as {tag}, not on {base}")
         release = by_tag.get(tag)
         return {"action": "notify" if release and not release["draft"] else "build", "tag": tag}
-    if resume:
-        return {"action": "none", "tag": ""}
-    # An unfinished release of another commit on this base would otherwise be
-    # passed over and left behind by every new run.
+    # fork-release validates only a track's tip, so once the failed run can
+    # no longer be rerun, the unfinished release can only be deleted.
+    retry = "rerun the failed jobs of the fork-release run that started it, or delete it"
     for t in sorted(tags):
         m = CONDA.fullmatch(t)
         if m and m[1] == base and t not in by_tag:
-            raise Fail(f"{t} is tagged at {tags[t]} without a release; finish it there or delete the tag")
+            raise Fail(f"{t} is tagged at {tags[t]} without a release; {retry}")
     for r in all_releases:
         m = CONDA.fullmatch(r["tag_name"])
         if m and m[1] == base and r["draft"]:
-            raise Fail(f"draft {r['tag_name']} releases another commit; publish or delete it first")
+            raise Fail(f"draft {r['tag_name']} releases another commit; {retry}")
+    if resume:
+        return {"action": "none", "tag": ""}
     numbers = [int(m[6]) for t in [*tags, *by_tag] if (m := CONDA.fullmatch(t)) and m[1] == base]
     return {"action": "build", "tag": f"{base}-conda.{max(numbers, default=0) + 1}"}
 
