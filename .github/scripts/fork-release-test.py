@@ -164,11 +164,13 @@ class ReleaseTests(unittest.TestCase):
             "several release tags": ({"v1.0.0-conda.1": A, "v1.0.0-conda.2": A}, []),
             "not on v1.0.0": ({"v0.9.0-conda.1": A}, []),
             "without a release": ({"v1.0.0-conda.1": B}, []),
-            "publish or delete": ({"v1.0.0-conda.1": B}, [published("v1.0.0-conda.1", draft=True)]),
+            "draft v1.0.0-conda.1": ({"v1.0.0-conda.1": B}, [published("v1.0.0-conda.1", draft=True)]),
         }
         for message, (tags, releases) in cases.items():
-            with self.subTest(message), self.assertRaisesRegex(release.Fail, message):
-                release.plan("v1.0.0", A, tags, releases, False)
+            # A scheduled resume reports an unfinished release instead of passing it over.
+            for resume in (False, True):
+                with self.subTest(message, resume=resume), self.assertRaisesRegex(release.Fail, message):
+                    release.plan("v1.0.0", A, tags, releases, resume)
 
     def test_newest_compares_versions_within_a_channel(self):
         releases = [
