@@ -1,7 +1,8 @@
 # Merges the latest upstream tag into the track this run is on, validates the
-# merge, fast-forwards the track, and drafts its release. The schedule runs on
-# stable, the default branch, and starts nightly's own run from nightly's ref.
-# FORK.md explains the fork workflows.
+# merge, fast-forwards the track, and publishes its release. When the track
+# already holds the tag, it finishes a release started at the track's tip. The
+# schedule runs on stable, the default branch, and starts nightly's own run
+# from nightly's ref. FORK.md explains the fork workflows.
 name: fork-sync
 
 on:
@@ -41,7 +42,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      changed: ${{ steps.prepare.outputs.changed }}
+      result: ${{ steps.prepare.outputs.result }}
       sha: ${{ steps.prepare.outputs.sha }}
     env:
       TRACK: ${{ github.ref_name }}
@@ -69,7 +70,7 @@ jobs:
           bash "$RUNNER_TEMP/fork-sync.sh" "$TRACK" "$REQUESTED_TAG"
       # GITHUB_TOKEN cannot push upstream's workflow changes; only this step
       # holds the sync token, after the merge code has finished.
-      - if: steps.prepare.outputs.changed == 'true'
+      - if: steps.prepare.outputs.result == 'ready'
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
@@ -82,7 +83,8 @@ jobs:
           TAG: ${{ steps.prepare.outputs.tag }}
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
           SHA: ${{ steps.prepare.outputs.sha }}
-          CHANGED: ${{ steps.prepare.outputs.changed }}
+          RESULT: ${{ steps.prepare.outputs.result }}
+          REASON: ${{ steps.prepare.outputs.reason }}
           PREVIOUS: ${{ steps.prepare.outputs.previous }}
         run: |
           {
@@ -90,8 +92,12 @@ jobs:
             echo "- Tag: $TAG"
             echo "- Update branch: $CANDIDATE"
             echo "- Commit: $SHA"
-            echo "- Update needed: $CHANGED"
-            if [ "$CHANGED" = true ]; then
+            echo "- Result: ${RESULT:-failed}"
+            if [ "$RESULT" = waiting ]; then
+              echo "Waiting for the patched ttsim build; the next scheduled run retries. $REASON"
+            elif [ "$RESULT" = current ]; then
+              echo "The track holds $TAG; fork-release finishes a release only if one was tagged or drafted at the tip."
+            elif [ "$RESULT" = ready ]; then
               echo "Review separately:"
               echo "- Fork patches: git diff $TAG $SHA"
               echo "- Upstream changes: git diff $PREVIOUS $TAG"
@@ -101,20 +107,24 @@ jobs:
             if git rev-parse --verify -q MERGE_HEAD > /dev/null; then
               echo "Merge conflicts; resolve them locally with fork-sync.sh, push $CANDIDATE, and rerun:"
               git diff --name-only --diff-filter=U | sed 's/^/- /'
-            elif [ -z "$CHANGED" ]; then
+            elif [ -z "$RESULT" ]; then
               echo "Preparation failed before a result; the prepare log names the error."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # A ready update is validated, promoted, and released. A current track only
+  # resumes a release that a tag or draft at its tip started.
   release:
     needs: prepare
-    if: needs.prepare.outputs.changed == 'true'
+    if: needs.prepare.outputs.result == 'ready' || needs.prepare.outputs.result == 'current'
     uses: ./.github/workflows/fork-release.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: write
+      actions: write
     with:
       ref: ${{ needs.prepare.outputs.sha }}
-      promote: true
+      promote: ${{ needs.prepare.outputs.result == 'ready' }}
       release: true
+      resume: ${{ needs.prepare.outputs.result == 'current' }}
     secrets:
       FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}

@@ -2,7 +2,9 @@
 # Merge an upstream tag into an update branch for one track. fork-sync pushes
 # and validates the branch, then fast-forwards the track to it. Locally, rerun
 # after resolving conflicts and push the branch. Exit status 2 means a merge
-# conflict; any other failure is a fetch, check, or setup error.
+# conflict; any other failure is a fetch, check, or setup error. On success,
+# result is current when the track holds the tag, waiting when the patched
+# ttsim build for a new ttsim pin may still appear, and ready with the commit.
 set -euo pipefail
 
 usage="usage: fork-sync.sh <stable|nightly> [upstream tag]"
@@ -39,8 +41,26 @@ if ! git merge-base --is-ancestor "$old" "$upstream_sha"; then
 fi
 if git merge-base --is-ancestor "$upstream_sha" "origin/$track"; then
     echo "$track already contains $new"
-    emit changed=false
+    emit result=current "sha=$(git rev-parse "origin/$track")"
     exit 0
+fi
+# A new ttsim pin needs the fork's patched build of it. Decide before merging,
+# so a build that is still coming leaves no branch, push, or validation behind.
+# An unchanged pin keeps the track's build, even when a newer one exists.
+new_ttsim=$(git show "$upstream_sha:tt_metal/ttsim-version" | tr -d '[:space:]')
+old_ttsim=$(git show "origin/$track:tt_metal/ttsim-version" | tr -d '[:space:]')
+ttsim_build=
+if [ "$new_ttsim" != "$old_ttsim" ]; then
+    track_release=$(git show "origin/$track:tt_metal/ttsim-release")
+    read -r ttsim_repo _ <<< "$track_release"
+    plan=$(python3 .github/scripts/fork-ttsim.py "$ttsim_repo" "$new_ttsim")
+    if [ "$(sed -n 's/^result=//p' <<< "$plan")" = waiting ]; then
+        reason=$(sed -n 's/^reason=//p' <<< "$plan")
+        echo "waiting: $reason"
+        emit result=waiting "reason=$reason"
+        exit 0
+    fi
+    ttsim_build=$(sed -n 's/^release=//p' <<< "$plan")
 fi
 # Resume a pushed update branch, which may hold a manual conflict resolution.
 if git ls-remote --exit-code --heads origin "$candidate" > /dev/null; then
@@ -88,16 +108,21 @@ if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
 fi
 # SFPI and ttsim always follow the selected upstream tag.
 git diff --exit-code "$upstream_sha" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
+read -r ttsim_repo ttsim_release < tt_metal/ttsim-release
+if [ -n "$ttsim_build" ] && [ "$ttsim_release" != "$ttsim_build" ]; then
+    printf '%s %s\n' "$ttsim_repo" "$ttsim_build" > tt_metal/ttsim-release
+    git commit -q -m "build: use ttsim $ttsim_build" -- tt_metal/ttsim-release
+    ttsim_release=$ttsim_build
+fi
 # just fetch-ttsim refuses a ttsim-release that does not build the pinned ttsim,
 # so stop before validation spends a build on it.
-read -r _ ttsim_release < tt_metal/ttsim-release
 ttsim=$(tr -d '[:space:]' < tt_metal/ttsim-version)
-if [[ "$ttsim_release" != "$ttsim"-* ]]; then
-    echo "tt_metal/ttsim-release names $ttsim_release, not a build of ttsim $ttsim; release one in Stanley5249/ttsim, commit the new name on $candidate, and rerun" >&2
+if [[ "$ttsim_release" != "$ttsim"-steps.* || ! "${ttsim_release#"$ttsim"-steps.}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "tt_metal/ttsim-release names $ttsim_release, not a $ttsim-steps.N build of ttsim $ttsim; commit the right name on $candidate and rerun" >&2
     exit 1
 fi
 git submodule sync --recursive
 git submodule update --init --recursive
 sha=$(git rev-parse HEAD)
-emit changed=true "previous=$old" "sha=$sha"
+emit result=ready "previous=$old" "sha=$sha"
 printf 'Update branch: %s\nCommit: %s\nUpstream: %s -> %s (%s)\n' "$candidate" "$sha" "$old" "$new" "$upstream_sha"

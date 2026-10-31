@@ -41,10 +41,10 @@ build *args:
 fetch-ttsim arch="":
     read -r repo tag < tt_metal/ttsim-release
     upstream=$(tr -d '[:space:]' < tt_metal/ttsim-version)
-    case $tag in
-        "$upstream"-*) ;;
-        *) echo "tt_metal/ttsim-release names $tag, not a build of ttsim $upstream" >&2; exit 1 ;;
-    esac
+    if [[ "$tag" != "$upstream"-steps.* || ! "${tag#"$upstream"-steps.}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "tt_metal/ttsim-release names $tag, not a $upstream-steps.N build of ttsim $upstream" >&2
+        exit 1
+    fi
     # test and trace call this without an arch, so they keep the one in sim/.
     arch={{ arch }}
     if [ -z "$arch" ]; then
@@ -146,3 +146,4 @@ ci:
     pixi run -e ci zizmor --offline .github/workflows/fork-*.yaml
     pixi run -e ci shellcheck .github/scripts/fork-*.sh
     pixi run -e ci uv run --no-project python .github/scripts/fork-sync-test.py
+    pixi run -e ci uv run --no-project python .github/scripts/fork-release-test.py

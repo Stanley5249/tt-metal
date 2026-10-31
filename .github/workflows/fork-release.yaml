@@ -1,15 +1,16 @@
 # Validates one exact commit on ttsim. fork-sync calls it to fast-forward a
-# track to a validated update and draft its release; started by hand, it
-# validates the branch it runs on and, on stable or nightly, can draft a
-# release. Drafts carry the wheel and Tracy tools that the smoke tests used,
-# and notes from git-cliff. FORK.md explains the fork workflows.
+# track to a validated update and publish its release, or to finish a release
+# already started at the track's tip; started by hand, it validates the branch
+# it runs on and, on stable or nightly, can publish a release of that commit.
+# Releases carry the wheel and Tracy tools that the smoke tests used, and
+# notes from git-cliff. FORK.md explains the fork workflows.
 name: fork-release
 
 on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Draft a release once the smoke tests pass"
+        description: "Publish a release once the smoke tests pass"
         type: boolean
         default: false
   workflow_call:
@@ -23,6 +24,10 @@ on:
         type: boolean
         default: false
       release:
+        type: boolean
+        default: false
+      resume:
+        description: "Only finish a release that a tag or draft at ref already started"
         type: boolean
         default: false
     secrets:
@@ -42,8 +47,9 @@ env:
 jobs:
   validate:
     needs: version
-    # A skipped release-numbering job still permits read-only validation.
-    if: ${{ !cancelled() && (!inputs.release || needs.version.result == 'success') }}
+    # A skipped release-numbering job still permits read-only validation. A
+    # published release of ref, or nothing to resume, needs no build.
+    if: ${{ !cancelled() && (!inputs.release || (needs.version.result == 'success' && needs.version.outputs.action == 'build')) }}
     uses: ./.github/workflows/fork-validate.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: read
@@ -55,10 +61,11 @@ jobs:
     if: inputs.release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # Only push access lists draft releases, whose tags do not exist yet.
+    # Only push access lists draft releases.
     permissions:
       contents: write
     outputs:
+      action: ${{ steps.version.outputs.action }}
       base: ${{ steps.version.outputs.base }}
       base-commit: ${{ steps.version.outputs.base-commit }}
       previous: ${{ steps.version.outputs.previous }}
@@ -68,14 +75,16 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      RESUME: ${{ inputs.resume }}
     steps:
       - if: github.ref_name != 'stable' && github.ref_name != 'nightly'
         run: |
-          echo "::error::Draft releases only on stable or nightly"
+          echo "::error::Release only on stable or nightly"
           exit 1
       # The scripts come from this branch, not from REF, which may hold
-      # upstream's new commits. Full history without blobs, so git describe
-      # finds the upstream tag; fetch-depth 0 also fetches update branches.
+      # upstream's new commits. Full history and tags without blobs, so git
+      # describe finds the upstream tag; fetch-depth 0 also fetches update
+      # branches.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -89,55 +98,37 @@ jobs:
         run: |
           metadata=$(bash .github/scripts/fork-version.sh "$GITHUB_REF_NAME" "$REF")
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
-          # git-cliff ignores --tag on a commit that already has a release tag.
-          head_release=$(git tag --points-at "$REF" --list 'v*-conda.*')
-          if [ -n "$head_release" ]; then
-            echo "::error::$REF is already released as $head_release"
-            exit 1
+          flags=()
+          if [ "$RESUME" = true ]; then
+            flags+=(--resume)
           fi
-          # conda.N counts releases on one upstream tag, drafts included.
-          n=$(gh release list -L 1000 --json tagName -q '.[].tagName' |
-            awk -F'-conda[.]' -v base="$base" '$1 == base && $2 ~ /^[0-9]+$/ {print $2}' |
-            sort -n | tail -1)
-          label="conda.$((${n:-0} + 1))"
+          plan=$(python3 .github/scripts/fork-release.py plan "$base" "$REF" "${flags[@]}")
+          action=$(printf '%s\n' "$plan" | sed -n 's/^action=//p')
+          tag=$(printf '%s\n' "$plan" | sed -n 's/^tag=//p')
           # Notes cover REF's commits since the upstream base, minus those of
           # earlier fork releases. After a sync those releases sit on the old
-          # base, inside the range, so git-cliff skips their tags by name.
-          # The notes job gets the base as a commit, since it fetches no
-          # upstream tags.
-          released=$(git tag --merged "$REF" --list 'v*-conda.*' | sed 's/\./\\./g' | paste -sd'|')
-          previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' "$REF" 2>/dev/null || true)
+          # base, inside the range, so git-cliff skips their tags by name. A
+          # resumed release's own tag may already sit on REF; it is neither
+          # skipped nor its own previous release. The notes job gets the base
+          # as a commit, since it fetches no upstream tags.
+          released=$(git tag --merged "$REF" --list 'v*-conda.*' | awk -v tag="$tag" '$0 != tag' | sed 's/\./\\./g' | paste -sd'|')
+          previous=$(git describe --tags --abbrev=0 --match 'v*-conda.*' --exclude "${tag:-none}" "$REF" 2>/dev/null || true)
           {
             printf '%s\n' "$metadata" | grep -E '^base(-commit)?='
+            echo "action=$action"
             echo "previous=$previous"
             echo "skip-tags=^($released)\$"
-            echo "label=$label"
-            echo "tag=$base-$label"
+            echo "label=${tag#"$base"-}"
+            echo "tag=$tag"
           } >> "$GITHUB_OUTPUT"
-          echo "Building $base-$label from $REF" >> "$GITHUB_STEP_SUMMARY"
-
-  # Only this job holds the sync token, and it runs no repository code. It
-  # waits for the notes too, so only the draft itself can fail after the track
-  # moves; rerun that failed job to draft from the same artifacts.
-  promote:
-    if: inputs.promote
-    needs: [validate, notes]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    env:
-      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      # force=false accepts only a fast-forward. If the track moved during
-      # validation, this fails and the next sync merges onto the new tip.
-      - run: |
-          gh api --method PATCH "repos/$GH_REPO/git/refs/heads/$GITHUB_REF_NAME" \
-            -f sha="$REF" -F force=false > /dev/null
-          echo "Fast-forwarded $GITHUB_REF_NAME to $REF" >> "$GITHUB_STEP_SUMMARY"
+          case $action in
+            build) echo "Building $tag from $REF" ;;
+            notify) echo "$tag already publishes $REF; checking it and notifying tracer" ;;
+            none) echo "No release started at $REF" ;;
+          esac >> "$GITHUB_STEP_SUMMARY"
 
   notes:
-    if: inputs.release
+    if: needs.version.outputs.action == 'build'
     needs: version
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -183,40 +174,142 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Only this job writes release assets, and it runs no build code. A skipped
-  # promotion, on a run started by hand, still permits the draft.
+  # Only this job holds the sync token, and it runs no repository code. It
+  # moves the track, then tags ref, so a release always follows a promotion;
+  # a failure between the two leaves the track moved without a tag, which
+  # only a rerun of this job repairs. Both steps are idempotent. It waits for
+  # the notes too, so nothing after the promotion depends on new output.
+  ref:
+    if: ${{ !cancelled() && (inputs.promote || inputs.release) && needs.version.outputs.action != 'none' && (needs.validate.result == 'success' || needs.version.outputs.action == 'notify') && (needs.notes.result == 'success' || needs.version.outputs.action != 'build') }}
+    needs: [version, validate, notes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      # Token pushes trigger push workflows like a person's, including
+      # upstream's tag and branch workflows that a sync may have added, so
+      # disable those first, as fork-checks does after a push.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow list --all -L 500 --json path,state \
+            -q '.[] | select(.state == "active" and (.path | startswith(".github/workflows/fork-") | not)) | .path' |
+            xargs -rn1 gh workflow disable
+      # force=false accepts only a fast-forward. If the track moved during
+      # validation, this fails and the next sync merges onto the new tip.
+      - if: inputs.promote
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          gh api --method PATCH "repos/$GH_REPO/git/refs/heads/$GITHUB_REF_NAME" \
+            -f sha="$REF" -F force=false > /dev/null
+          echo "Fast-forwarded $GITHUB_REF_NAME to $REF" >> "$GITHUB_STEP_SUMMARY"
+      # The tag records the intent to release REF, so a later sync finishes
+      # the release even if this run stops. An existing tag must name REF.
+      - if: inputs.release
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          if found=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2> "$RUNNER_TEMP/tag.err"); then
+            read -r type sha <<< "$found"
+            if [ "$type" = tag ]; then
+              sha=$(gh api "repos/$GH_REPO/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" != "$REF" ]; then
+              echo "::error::Tag $TAG points to $sha, not $REF"
+              exit 1
+            fi
+            echo "Tag $TAG already names $REF" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/tag.err"; then
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$REF" > /dev/null
+            echo "Tagged $REF as $TAG" >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat "$RUNNER_TEMP/tag.err" >&2
+            exit 1
+          fi
+
+  # Only this job writes releases, and it runs no build code: the script comes
+  # from this branch. It publishes the assets that the smoke tests used, after
+  # checking them against the build manifest, and checks GitHub's copy again
+  # before and after publishing. A published release is only checked.
   release:
-    if: ${{ !cancelled() && !failure() && inputs.release }}
-    needs: [version, validate, promote, notes]
+    if: ${{ !cancelled() && inputs.release && needs.ref.result == 'success' }}
+    needs: [version, ref]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
+    outputs:
+      latest: ${{ steps.publish.outputs.latest }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ACTION: ${{ needs.version.outputs.action }}
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
       # The smoke logs stay in their artifacts.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - if: needs.version.outputs.action == 'build'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
-          path: assets/dist
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+          path: ${{ runner.temp }}/dist
+      - if: needs.version.outputs.action == 'build'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: notes
-          path: assets/notes
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.version.outputs.tag }}
+          path: ${{ runner.temp }}/notes
+      - id: publish
         run: |
-          flags=()
-          if [ "$GITHUB_REF_NAME" = nightly ]; then
-            flags+=(--prerelease --latest=false)
+          if [ "$ACTION" = build ]; then
+            python3 .github/scripts/fork-release.py publish "$TAG" "$REF" \
+              "$RUNNER_TEMP/dist" "$RUNNER_TEMP/notes/release-notes.md" > "$RUNNER_TEMP/outputs"
+            {
+              echo "Published $TAG at $REF with:"
+              echo '```text'
+              (cd "$RUNNER_TEMP/dist" && sha256sum ttnn-*.whl tracy-tools-linux_x86_64.tar.gz)
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 .github/scripts/fork-release.py published "$TAG" "$REF" > "$RUNNER_TEMP/outputs"
+            echo "$TAG was already published at $REF with checked assets" >> "$GITHUB_STEP_SUMMARY"
           fi
-          gh release create "$TAG" --draft --target "$REF" --title "$TAG" \
-            "${flags[@]}" --notes-file assets/notes/release-notes.md \
-            assets/dist/ttnn-*.whl assets/dist/tracy-tools-linux_x86_64.tar.gz
-          {
-            echo "Drafted $TAG at $REF with:"
-            echo '```text'
-            (cd assets/dist && sha256sum ttnn-*.whl tracy-tools-linux_x86_64.tar.gz)
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/outputs" >> "$GITHUB_OUTPUT"
+          if ! grep -qx 'latest=true' "$RUNNER_TEMP/outputs"; then
+            echo "A newer release exists on this channel, so tracer is not notified" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Releases published with GITHUB_TOKEN trigger no release event, so this
+  # starts fork-notify itself. Only the newest release on a channel notifies,
+  # because tracer would move its pin back to an older backfilled release.
+  notify:
+    if: needs.release.outputs.latest == 'true'
+    needs: [version, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - run: |
+          for attempt in 1 2 3; do
+            if gh workflow run fork-notify.yaml --ref "$GITHUB_REF_NAME" -f tag="$TAG"; then
+              echo "Started fork-notify for $TAG" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::Could not start fork-notify; dispatch it with tag $TAG"
+          exit 1

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise fork sync with tiny local Git repositories and no builds."""
 
+import datetime
+import json
 import os
 import subprocess
 import tempfile
@@ -8,6 +10,35 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
+# Serves `gh api repos/<repo>/releases...` from FAKE_RELEASES, a JSON object of
+# release lists by repository; a string value fails like an API error.
+FAKE_GH = """#!/usr/bin/env python3
+import json, os, re, sys
+repo = re.fullmatch(r"repos/([^/]+/[^/?]+)/releases.*", sys.argv[2])[1]
+data = json.loads(os.environ["FAKE_RELEASES"]).get(repo, [])
+if isinstance(data, str):
+    sys.exit(f"gh: {data}")
+print(json.dumps([data]))
+"""
+
+
+def ago(hours):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return (now - datetime.timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def ttsim_build(tag, assets=("libttsim_wh.so", "libttsim_bh.so")):
+    digest = "sha256:" + "0" * 64
+    return {
+        "tag_name": tag,
+        "draft": False,
+        "prerelease": False,
+        "assets": [{"name": name, "size": 1, "digest": digest} for name in assets],
+    }
+
+
+def upstream_ttsim(tag, hours=1):
+    return {"tag_name": tag, "draft": False, "prerelease": False, "published_at": ago(hours)}
 
 
 class ForkSyncTests(unittest.TestCase):
@@ -31,7 +62,7 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.root, "init", "-q", "--initial-branch=main", str(self.upstream))
         self.write(self.upstream, "source.txt", "base\n")
         self.write(self.upstream, "tt_metal/sfpi-version", "upstream-sfpi\n")
-        self.write(self.upstream, "tt_metal/ttsim-version", "upstream-ttsim\n")
+        self.write(self.upstream, "tt_metal/ttsim-version", "v1.0.0\n")
         self.commit(self.upstream, "base")
         self.git(self.upstream, "tag", "v1.0.0")
         self.write(self.upstream, "nightly.txt", "nightly base\n")
@@ -42,8 +73,8 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "remote", "rename", "origin", "upstream")
         self.git(self.work, "remote", "add", "origin", str(self.origin))
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
-        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim upstream-ttsim-steps.1\n")
-        for script in ["fork-select-tag.sh", "fork-upstream-tags.sh", "fork-version.sh"]:
+        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim v1.0.0-steps.1\n")
+        for script in ["fork-select-tag.sh", "fork-ttsim.py", "fork-upstream-tags.sh", "fork-version.sh"]:
             self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
         self.write(self.work, "fork.txt", "fork change\n")
         self.commit(self.work, "fork change")
@@ -52,16 +83,29 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "cherry-pick", infrastructure)
         self.git(self.work, "switch", "-q", "stable")
         self.git(self.work, "push", "-q", "origin", "stable", "nightly")
+        binary = self.root / "fake-gh"
+        binary.mkdir()
+        (binary / "gh").write_text(FAKE_GH)
+        (binary / "gh").chmod(0o755)
+        self.env["PATH"] = f"{binary}:{self.env['PATH']}"
+        self.releases({})
+
+    def releases(self, data):
+        self.env["FAKE_RELEASES"] = json.dumps(data)
+
+    def bump_ttsim(self, version="v1.1.0"):
+        self.write(self.upstream, "tt_metal/ttsim-version", f"{version}\n")
 
     def call(self, cmd, cwd=None, env=None, success=True):
         result = subprocess.run(
             cmd, cwd=cwd or self.work, env=env or self.env, text=True, capture_output=True, check=False
         )
-        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        if success is not None:
+            self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
 
-    def git(self, cwd, *args):
-        return self.call(["git", *args], cwd=cwd).stdout
+    def git(self, cwd, *args, success=True):
+        return self.call(["git", *args], cwd=cwd, success=success).stdout
 
     def head(self):
         return self.git(self.work, "rev-parse", "HEAD").strip()
@@ -135,13 +179,13 @@ class ForkSyncTests(unittest.TestCase):
         self.sync()
         self.assertEqual(self.head(), sha)
         outputs = self.outputs()
-        self.assertEqual(outputs["changed"], "true")
+        self.assertEqual(outputs["result"], "ready")
         self.assertEqual(outputs["sha"], sha)
         self.assertEqual(outputs["candidate"], "chore/sync-stable-v1.0.1")
-        self.assertIn(self.git(self.upstream, "rev-parse", "v1.0.1").strip(), self.git(self.work, "log", "--format=%P", "-1"))
-        self.assertEqual(
-            self.git(self.work, "rev-parse", "origin/stable"), self.git(self.work, "rev-parse", "stable")
+        self.assertIn(
+            self.git(self.upstream, "rev-parse", "v1.0.1").strip(), self.git(self.work, "log", "--format=%P", "-1")
         )
+        self.assertEqual(self.git(self.work, "rev-parse", "origin/stable"), self.git(self.work, "rev-parse", "stable"))
 
     def test_clone_without_upstream_tags(self):
         self.advance()
@@ -165,7 +209,8 @@ class ForkSyncTests(unittest.TestCase):
         self.sync()
         self.git(self.work, "push", "-q", "origin", "HEAD:stable")
         self.sync()
-        self.assertEqual(self.outputs()["changed"], "false")
+        self.assertEqual(self.outputs()["result"], "current")
+        self.assertEqual(self.outputs()["sha"], self.git(self.work, "rev-parse", "origin/stable").strip())
 
     def test_invalid_tag_and_dirty_tree(self):
         self.assertIn("not an upstream", self.sync(tag="v1.0.1-rc1", success=False))
@@ -227,17 +272,81 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "push", "-q", "origin", "stable")
         self.advance()
         self.sync(success=False, status=1)
-        self.assertNotIn("changed", self.outputs())
+        self.assertNotIn("result", self.outputs())
 
-    def test_ttsim_bump_needs_a_matching_release(self):
-        self.write(self.upstream, "tt_metal/ttsim-version", "new-upstream-ttsim\n")
+    def test_ttsim_bump_commits_the_highest_build(self):
+        self.bump_ttsim()
         self.advance()
-        self.assertIn("not a build of ttsim new-upstream-ttsim", self.sync(success=False, status=1))
-        self.assertNotIn("changed", self.outputs())
-        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim new-upstream-ttsim-steps.1\n")
-        self.commit(self.work, "use the new ttsim build")
+        builds = [ttsim_build(f"v1.1.0-steps.{n}") for n in (2, 10, 9)]
+        builds.append(ttsim_build("v1.1.0-steps.11") | {"draft": True})
+        self.releases({"Stanley5249/ttsim": builds, "tenstorrent/ttsim": [upstream_ttsim("v1.1.0")]})
         self.sync()
-        self.assertEqual(self.outputs()["sha"], self.head())
+        outputs = self.outputs()
+        self.assertEqual(outputs["result"], "ready")
+        self.assertEqual(outputs["sha"], self.head())
+        self.assertEqual((self.work / "tt_metal/ttsim-release").read_text(), "Stanley5249/ttsim v1.1.0-steps.10\n")
+        self.assertEqual(self.git(self.work, "log", "-1", "--format=%s"), "build: use ttsim v1.1.0-steps.10\n")
+        # A retry from the pushed branch keeps its commit and adds none.
+        sha = self.head()
+        self.git(self.work, "push", "-q", "origin", "HEAD")
+        self.git(self.work, "switch", "-q", "stable")
+        self.git(self.work, "branch", "-D", "chore/sync-stable-v1.0.1")
+        self.sync()
+        self.assertEqual(self.head(), sha)
+
+    def test_ttsim_bump_waits_for_a_recent_upstream_release(self):
+        self.bump_ttsim()
+        self.advance()
+        stable = self.head()
+        self.releases({"tenstorrent/ttsim": [upstream_ttsim("v1.0.0", 500), upstream_ttsim("v1.1.0", 47)]})
+        self.assertIn("waiting", self.sync())
+        self.assertEqual(self.outputs()["result"], "waiting")
+        self.assertNotIn("sha", self.outputs())
+        self.assertEqual(self.head(), stable)
+        self.assertEqual(self.git(self.work, "branch", "--list", "chore/*"), "")
+
+    def test_ttsim_bump_fails_when_the_build_is_overdue(self):
+        self.bump_ttsim()
+        self.advance()
+        cases = {
+            "older than v1.2.0": [upstream_ttsim("v1.1.0"), upstream_ttsim("v1.2.0")],
+            "48 hours after": [upstream_ttsim("v1.1.0", 49)],
+            "not a published": [upstream_ttsim("v1.1.0") | {"prerelease": True}],
+            "cannot list": "HTTP 502",
+        }
+        for message, upstream in cases.items():
+            with self.subTest(message):
+                self.releases({"tenstorrent/ttsim": upstream})
+                self.assertIn(message, self.sync(success=False, status=1))
+                self.assertNotIn("result", self.outputs())
+
+    def test_ttsim_bump_rejects_a_build_without_digests(self):
+        self.bump_ttsim()
+        self.advance()
+        broken = ttsim_build("v1.1.0-steps.1")
+        del broken["assets"][1]["digest"]
+        self.releases({"Stanley5249/ttsim": [broken]})
+        self.assertIn("libttsim_bh.so", self.sync(success=False, status=1))
+
+    def test_unchanged_ttsim_pin_keeps_the_track_build(self):
+        # A newer build of the same pin does not move it, and gh is not asked.
+        self.releases({"Stanley5249/ttsim": "unused", "tenstorrent/ttsim": "unused"})
+        self.advance()
+        self.sync()
+        self.assertEqual((self.work / "tt_metal/ttsim-release").read_text(), "Stanley5249/ttsim v1.0.0-steps.1\n")
+
+    def test_ttsim_release_needs_a_steps_number(self):
+        self.advance()
+        start = self.head()
+        for name in ["v1.0.0-steps.0", "v1.0.0-steps.1a", "v1.0.0-rc1", "v1.0.0"]:
+            with self.subTest(name):
+                self.git(self.work, "switch", "-q", "--discard-changes", "stable")
+                self.git(self.work, "branch", "-D", "chore/sync-stable-v1.0.1", success=None)
+                self.git(self.work, "reset", "-q", "--hard", start)
+                self.write(self.work, "tt_metal/ttsim-release", f"Stanley5249/ttsim {name}\n")
+                self.commit(self.work, "bad ttsim build")
+                self.git(self.work, "push", "-q", "-f", "origin", "stable")
+                self.assertIn("not a v1.0.0-steps.N", self.sync(success=False, status=1))
 
     def test_fetch_failure_is_not_a_conflict(self):
         self.advance()
@@ -245,7 +354,7 @@ class ForkSyncTests(unittest.TestCase):
         output = self.sync(success=False, status=128)
         self.assertIn("missing", output)
         self.assertNotIn("Resolve conflicts", output)
-        self.assertNotIn("changed", self.outputs())
+        self.assertNotIn("result", self.outputs())
 
     def test_nightly_ignores_stable(self):
         self.write(self.work, "fork.txt", "stable-only change\n")
