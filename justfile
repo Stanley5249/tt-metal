@@ -147,3 +147,4 @@ ci:
     pixi run -e ci shellcheck .github/scripts/fork-*.sh
     pixi run -e ci uv run --no-project python .github/scripts/fork-sync-test.py
     pixi run -e ci uv run --no-project python .github/scripts/fork-release-test.py
+    pixi run -e ci uv run --no-project python .github/scripts/fork-models-check-test.py

@@ -447,7 +447,9 @@ packages += find_packages("tools")
 # tt-vllm-tracer: ship the models/ subtrees that tt_transformers imports, with
 # its model parameters, so a wheel install needs no tt-metal checkout.
 models_roots = (
+    # tt_transformers holds only an import alias for ttt_compat since v0.82.0-dev20261101.
     "tt_transformers",
+    "ttt_compat",
     "common",
     "perf",
     "demos.utils",
@@ -492,7 +494,7 @@ setup(
     package_data={
         "models": ["**/*.json", "**/*.yaml"],
         # Folders such as Llama-3.2-1B-Instruct are not package names.
-        "models.tt_transformers": ["model_params/**/*"],
+        "models.ttt_compat": ["model_params/**/*"],
     },
     # setuptools-scm adds every tracked file under a package as data; skip tests.
     exclude_package_data={"": ["tests/*"]},
