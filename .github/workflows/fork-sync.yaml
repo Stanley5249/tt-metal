@@ -7,8 +7,10 @@ name: fork-sync
 
 on:
   schedule:
-    # Monday and Thursday 05:23 in Taiwan. GitHub schedules use UTC.
+    # Stable: Monday and Thursday 05:23 in Taiwan. GitHub schedules use UTC.
     - cron: "23 21 * * 0,3"
+    # Nightly: daily 12:23 in Taiwan, after upstream's usual nightly release.
+    - cron: "23 4 * * *"
   workflow_dispatch:
     inputs:
       tag:
@@ -25,7 +27,7 @@ concurrency:
 jobs:
   # GITHUB_TOKEN may start workflow_dispatch runs, unlike most events.
   nightly:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' && github.event.schedule == '23 4 * * *'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -37,6 +39,8 @@ jobs:
       - run: gh workflow run fork-sync.yaml --ref nightly
 
   prepare:
+    # The daily schedule only dispatches nightly; manual runs use their own ref.
+    if: github.event_name != 'schedule' || github.event.schedule == '23 21 * * 0,3'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
