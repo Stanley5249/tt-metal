@@ -188,6 +188,7 @@ jobs:
           REF: ${{ inputs.ref }}
         run: python .github/scripts/fork-release.py check dist "$REF"
       - run: uv pip install dist/ttnn-*.whl
+      - run: python .github/scripts/fork-models-check.py
       - run: just fetch-ttsim --arch "$ARCH"
       - run: python .github/scripts/fork-smoke.py
       # Test the shipped capture tools and simulator device timestamps too.

@@ -75,7 +75,7 @@ _REPO_ROOT = Path(
 )
 # tt-vllm-tracer: prefer the tree this file lives in when it carries the model
 # parameters, so a separately installed `models` package finds its own.
-if (Path(__file__).resolve().parents[3] / "models/tt_transformers/model_params").is_dir():
+if (Path(__file__).resolve().parents[1] / "model_params").is_dir():
     _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
