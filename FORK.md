@@ -87,7 +87,7 @@ fork-notify    published/manual  notify-tracer
 - `fork-notify` dispatches `tt-metal-released` to `tt-vllm-tracer`. Its `sync-metal` workflow commits the wheel pin and lockfile for that exact release, validates that commit, and fast-forwards tracer's `main` to it instead of opening a dependency PR. `fork-release` starts `fork-notify` only for the newest release on a channel, because tracer does not refuse an older one; a release that a person publishes triggers it through the release event. Only `fork-notify` reads `TRACER_DISPATCH_TOKEN`, scoped to tracer's Contents write permission. Dispatch it with a tag to retry without rebuilding, or rerun `fork-release`, which notifies again for a release it already published.
 - Failures show in each run's Actions summary and in GitHub's own failed-run notifications.
 
-Upstream workflows stay in the tree, and `disable-upstream` keeps them off, because their schedules would queue for Tenstorrent's self-hosted runners. A sync can add new ones, which start active until the next push to a track or update branch disables them. Use update branches instead of internal PRs, and keep `main` absent, issues off, and Dependabot off to avoid inherited triggers.
+Upstream workflows stay in the tree, and `disable-upstream` keeps them off, because their schedules would queue for Tenstorrent's self-hosted runners. A sync can add new ones, which start active until the next push to a track or update branch disables them. Use update branches instead of internal PRs, and keep `main` absent and Dependabot off to avoid inherited triggers.
 
 ## Side effects
 
