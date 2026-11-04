@@ -6,6 +6,8 @@
 # features it needs; the default feature stays empty.
 [workspace]
 name = "tt-metal"
+# The upstream tag this commit is based on; fork-sync moves it with each merge.
+version = "0.82.0.dev20261103"
 channels = ["conda-forge"]
 requires-pixi = ">=0.81"
 # The sysroot pin below needs glibc 2.34.

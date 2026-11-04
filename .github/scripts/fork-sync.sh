@@ -31,8 +31,6 @@ git submodule foreach --quiet --recursive 'test -z "$(git status --porcelain --i
 git fetch -q --no-tags upstream tag "$new"
 upstream_sha=$(git rev-parse "$new^{commit}")
 git fetch -q --no-tags origin "$track:refs/remotes/origin/$track"
-# Fork clones carry only fork release tags. Discover upstream bases first.
-bash .github/scripts/fork-upstream-tags.sh "origin/$track"
 metadata=$(bash .github/scripts/fork-version.sh "$track" "origin/$track")
 old=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
 if ! git merge-base --is-ancestor "$old" "$upstream_sha"; then
@@ -118,6 +116,11 @@ if [ -n "$ttsim_build" ]; then
         SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pixi lock
         git commit -q -m "build: use ttsim $ttsim_build" -- pixi.toml pixi.lock
     fi
+fi
+version=${new#v}
+sed -i "0,/^version = /s/^version = .*/version = \"${version/-dev/.dev}\"/" pixi.toml
+if ! git diff --quiet -- pixi.toml; then
+    git commit -q -m "build: record upstream $new" -- pixi.toml
 fi
 # Stop before validation spends a build on a pin that does not build the
 # upstream ttsim release.

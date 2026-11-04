@@ -27,10 +27,14 @@ FAKE_PIXI = """#!/usr/bin/env bash
 PIN = 'ttsim = {{ url = "https://github.com/Stanley5249/ttsim/releases/download/{tag}/{package}", sha256 = "{sha}" }}\n'
 
 
-def manifest(tag="v1.0.0-steps.1", sha="1" * 64):
-    version, steps = tag.split("-steps.")
-    package = f"ttsim-{version[1:]}%2Bsteps.{steps}-0.conda"
-    return "[feature.runtime.dependencies]\n" + PIN.format(tag=tag, package=package, sha=sha)
+def workspace(version="1.0.0"):
+    return f'[workspace]\nversion = "{version}"\n'
+
+
+def manifest(tag="v1.0.0-steps.1", sha="1" * 64, version="1.0.0"):
+    ttsim, steps = tag.split("-steps.")
+    package = f"ttsim-{ttsim[1:]}%2Bsteps.{steps}-0.conda"
+    return workspace(version) + "[feature.runtime.dependencies]\n" + PIN.format(tag=tag, package=package, sha=sha)
 
 
 def ago(hours):
@@ -88,13 +92,15 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
         self.write(self.work, "pixi.toml", manifest())
         self.write(self.work, "pixi.lock", "initial\n")
-        for script in ["fork-select-tag.sh", "fork-ttsim.py", "fork-upstream-tags.sh", "fork-version.sh"]:
+        for script in ["fork-select-tag.sh", "fork-ttsim.py", "fork-version.sh"]:
             self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
         self.write(self.work, "fork.txt", "fork change\n")
         self.commit(self.work, "fork change")
         infrastructure = self.head()
         self.git(self.work, "switch", "-q", "-c", "nightly", "v1.1.0-dev20260101")
         self.git(self.work, "cherry-pick", infrastructure)
+        self.write(self.work, "pixi.toml", manifest(version="1.1.0.dev20260101"))
+        self.commit(self.work, "record nightly base")
         self.git(self.work, "switch", "-q", "stable")
         self.git(self.work, "push", "-q", "origin", "stable", "nightly")
         binary = self.root / "fake-gh"
@@ -180,6 +186,21 @@ class ForkSyncTests(unittest.TestCase):
         self.assertIn("cannot build", self.version_error("stable", "origin/nightly"))
         self.assertIn("cannot build", self.version_error("nightly"))
 
+    def test_version_reads_the_recorded_base_not_the_nearest_tag(self):
+        # git describe would name v1.1.0-dev20260101, the nearest tag here.
+        self.git(self.work, "switch", "-q", "nightly")
+        self.write(self.work, "pixi.toml", manifest())
+        self.commit(self.work, "record an older base")
+        self.assertEqual(self.version("auto")["base"], "v1.0.0")
+
+    def test_recorded_base_must_be_present_and_in_history(self):
+        self.write(self.work, "pixi.toml", "[workspace]\n")
+        self.commit(self.work, "drop version")
+        self.assertIn("records no upstream version", self.version_error())
+        self.write(self.work, "pixi.toml", manifest(version="1.1.0.dev20260101"))
+        self.commit(self.work, "record a tag outside this history")
+        self.assertIn("does not contain", self.version_error("auto"))
+
     def test_invalid_version_inputs(self):
         self.version_error("invalid")
         self.version_error(ref="missing-ref")
@@ -199,9 +220,10 @@ class ForkSyncTests(unittest.TestCase):
         self.assertEqual(outputs["sha"], sha)
         self.assertEqual(outputs["candidate"], "chore/sync-stable-v1.0.1")
         self.assertIn(
-            self.git(self.upstream, "rev-parse", "v1.0.1").strip(), self.git(self.work, "log", "--format=%P", "-1")
+            self.git(self.upstream, "rev-parse", "v1.0.1").strip(), self.git(self.work, "log", "--format=%P", "-1", "HEAD~")
         )
         self.assertEqual(self.git(self.work, "rev-parse", "origin/stable"), self.git(self.work, "rev-parse", "stable"))
+        self.assertEqual(self.version()["base"], "v1.0.1")
 
     def test_clone_without_upstream_tags(self):
         self.advance()
@@ -300,12 +322,12 @@ class ForkSyncTests(unittest.TestCase):
         outputs = self.outputs()
         self.assertEqual(outputs["result"], "ready")
         self.assertEqual(outputs["sha"], self.head())
-        self.assertEqual((self.work / "pixi.toml").read_text(), manifest("v1.1.0-steps.10", "0" * 64))
+        self.assertEqual((self.work / "pixi.toml").read_text(), manifest("v1.1.0-steps.10", "0" * 64, "1.0.1"))
         self.assertIn("pixi.toml", (self.work / "pixi.lock").read_text())
         self.assertEqual(
-            self.git(self.work, "show", "--name-only", "--format=", "HEAD").split(), ["pixi.lock", "pixi.toml"]
+            self.git(self.work, "show", "--name-only", "--format=", "HEAD~").split(), ["pixi.lock", "pixi.toml"]
         )
-        self.assertEqual(self.git(self.work, "log", "-1", "--format=%s"), "build: use ttsim v1.1.0-steps.10\n")
+        self.assertEqual(self.git(self.work, "log", "-1", "--format=%s", "HEAD~"), "build: use ttsim v1.1.0-steps.10\n")
         # A retry from the pushed branch keeps its commit and adds none.
         sha = self.head()
         self.git(self.work, "push", "-q", "origin", "HEAD")
@@ -355,7 +377,7 @@ class ForkSyncTests(unittest.TestCase):
         self.releases({"Stanley5249/ttsim": "unused", "tenstorrent/ttsim": "unused"})
         self.advance()
         self.sync()
-        self.assertEqual((self.work / "pixi.toml").read_text(), manifest())
+        self.assertEqual((self.work / "pixi.toml").read_text(), manifest(version="1.0.1"))
         self.assertEqual((self.work / "pixi.lock").read_text(), "initial\n")
 
     def test_ttsim_pin_needs_a_build_of_the_upstream_version(self):
@@ -368,8 +390,8 @@ class ForkSyncTests(unittest.TestCase):
             "other version": manifest("v1.1.0-steps.1"),
             "other repository": manifest().replace("Stanley5249", "tenstorrent"),
             "package of another build": manifest().replace("steps.1-0", "steps.2-0"),
-            "no steps": f'[feature.runtime.dependencies]\nttsim = {{ url = "{url}/v1.0.0/ttsim.conda", sha256 = "{sha}" }}\n',
-            "short url": f'[feature.runtime.dependencies]\nttsim = {{ url = "x", sha256 = "{sha}" }}\n',
+            "no steps": workspace() + f'[feature.runtime.dependencies]\nttsim = {{ url = "{url}/v1.0.0/ttsim.conda", sha256 = "{sha}" }}\n',
+            "short url": workspace() + f'[feature.runtime.dependencies]\nttsim = {{ url = "x", sha256 = "{sha}" }}\n',
         }
         for name, pin in pins.items():
             with self.subTest(name):
@@ -385,7 +407,7 @@ class ForkSyncTests(unittest.TestCase):
         self.advance()
         start = self.head()
         pins = {
-            "no ttsim pin": "[feature.runtime.dependencies]\n",
+            "no ttsim pin": workspace() + "[feature.runtime.dependencies]\n",
             "not 64 hex digits": manifest(sha="abc"),
         }
         for message, pin in pins.items():
