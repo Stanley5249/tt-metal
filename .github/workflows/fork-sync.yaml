@@ -46,6 +46,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      candidate: ${{ steps.prepare.outputs.candidate }}
       result: ${{ steps.prepare.outputs.result }}
       sha: ${{ steps.prepare.outputs.sha }}
     env:
@@ -62,6 +63,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # A new ttsim pin needs `pixi lock`; no environment is installed.
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          run-install: false
       - id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,16 +78,20 @@ jobs:
           # Run the checked-out script even when the merge changes it.
           cp .github/scripts/fork-sync.sh "$RUNNER_TEMP/fork-sync.sh"
           bash "$RUNNER_TEMP/fork-sync.sh" "$TRACK" "$REQUESTED_TAG"
-      # GITHUB_TOKEN cannot push upstream's workflow changes; only this step
-      # holds the sync token, after the merge code has finished.
+      # The push job takes the update as a bundle, so it never runs this job's
+      # files or anything that the merged code left on this runner.
       - if: steps.prepare.outputs.result == 'ready'
         env:
-          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          TRACK: ${{ github.ref_name }}
           CANDIDATE: ${{ steps.prepare.outputs.candidate }}
-          SHA: ${{ steps.prepare.outputs.sha }}
-        run: |
-          gh auth setup-git
-          git push origin "$SHA:refs/heads/$CANDIDATE"
+        run: git bundle create "$RUNNER_TEMP/update.bundle" "refs/heads/$CANDIDATE" "^origin/$TRACK"
+      - if: steps.prepare.outputs.result == 'ready'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: update-bundle
+          path: ${{ runner.temp }}/update.bundle
+          if-no-files-found: error
+          retention-days: 1
       - if: always()
         env:
           TAG: ${{ steps.prepare.outputs.tag }}
@@ -116,11 +126,48 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # GITHUB_TOKEN cannot push upstream's workflow changes. Only this job holds
+  # the sync token, on a fresh runner that runs no repository code. prepare's
+  # outputs come from a step that ran merged code, so check where they point.
+  push:
+    needs: prepare
+    if: needs.prepare.outputs.result == 'ready'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TRACK: ${{ github.ref_name }}
+      CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: update-bundle
+          path: ${{ runner.temp }}/update
+      - env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          if [[ "$CANDIDATE" != "chore/sync-$TRACK-"* ]]; then
+            echo "::error::Refusing to push to $CANDIDATE"
+            exit 1
+          fi
+          git fetch -q --no-tags "$RUNNER_TEMP/update/update.bundle" "refs/heads/$CANDIDATE"
+          git merge-base --is-ancestor "$SHA" FETCH_HEAD
+          gh auth setup-git
+          git push origin "$SHA:refs/heads/$CANDIDATE"
+
   # A ready update is validated, promoted, and released. A current track only
   # resumes a release that a tag or draft at its tip started.
   release:
-    needs: prepare
-    if: needs.prepare.outputs.result == 'ready' || needs.prepare.outputs.result == 'current'
+    needs: [prepare, push]
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.result == 'current' ||
+      (needs.prepare.outputs.result == 'ready' && needs.push.result == 'success')) }}
     uses: ./.github/workflows/fork-release.yaml # zizmor: ignore[self-repository] -- Locked actionlint requires ./ syntax.
     permissions:
       contents: write

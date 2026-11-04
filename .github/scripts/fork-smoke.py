@@ -1,7 +1,7 @@
 """Run a few ttnn ops on ttsim and compare them with torch.
 
 fork-validate's smoke job runs it in the pixi wheel environment, after
-installing the built wheel and `just fetch-ttsim`. It runs as a file, not with
+installing the built wheel and `just link-ttsim`. It runs as a file, not with
 `python -c`, so `import ttnn` finds the installed wheel instead of the ttnn/
 folder in the checkout.
 

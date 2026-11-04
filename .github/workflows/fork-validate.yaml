@@ -61,12 +61,7 @@ jobs:
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # These dependencies belong to upstream, including on a patched candidate.
           git diff --exit-code "$base" HEAD -- tt_metal/sfpi-version tt_metal/ttsim-version
-          read -r _ ttsim_release < tt_metal/ttsim-release
-          ttsim=$(tr -d '[:space:]' < tt_metal/ttsim-version)
-          if [[ "$ttsim_release" != "$ttsim"-steps.* || ! "${ttsim_release#"$ttsim"-steps.}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::tt_metal/ttsim-release names $ttsim_release, not a $ttsim-steps.N build"
-            exit 1
-          fi
+          python3 .github/scripts/fork-ttsim.py check "$(tr -d '[:space:]' < tt_metal/ttsim-version)"
           printf '%s\n' "$metadata" >> "$GITHUB_OUTPUT"
           version=$(printf '%s\n' "$metadata" | awk -F= '$1 == "version" {print $2}')
           echo "Validating $(git rev-parse HEAD) as ttnn $version" >> "$GITHUB_STEP_SUMMARY"
@@ -165,9 +160,9 @@ jobs:
       fail-fast: false
       matrix:
         arch: [wh, bh]
+    # Set for the job, so pixi activation in setup-pixi selects the library.
     env:
-      ARCH: ${{ matrix.arch }}
-      GH_TOKEN: ${{ github.token }}
+      TTSIM_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -189,7 +184,7 @@ jobs:
         run: python .github/scripts/fork-release.py check dist "$REF"
       - run: uv pip install dist/ttnn-*.whl
       - run: python .github/scripts/fork-models-check.py
-      - run: just fetch-ttsim --arch "$ARCH"
+      - run: just link-ttsim
       - run: python .github/scripts/fork-smoke.py
       # Test the shipped capture tools and simulator device timestamps too.
       - run: |

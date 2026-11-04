@@ -106,6 +106,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/libstdcxx-devel_linux-64-13.4.0-h6963c3b_120.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.34-h087de78_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
+      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.15.0-steps.1/ttsim-1.15.0%2Bsteps.1-0.conda
       - pypi: ./
       - pypi: https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/4f/83454fafd628e1e7e1726d74e44fb2332be5969d04c6182ca1fecb6c580e/filelock-4.0.9-py3-none-any.whl
@@ -185,6 +186,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.7.22-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
+      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.15.0-steps.1/ttsim-1.15.0%2Bsteps.1-0.conda
       - pypi: https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/4f/83454fafd628e1e7e1726d74e44fb2332be5969d04c6182ca1fecb6c580e/filelock-4.0.9-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
@@ -1301,6 +1303,15 @@ packages:
   run_exports: {}
   size: 118849
   timestamp: 1784250406640
+- conda: https://github.com/Stanley5249/ttsim/releases/download/v1.15.0-steps.1/ttsim-1.15.0%2Bsteps.1-0.conda
+  name: ttsim
+  version: 1.15.0+steps.1
+  build: '0'
+  subdir: linux-64
+  sha256: a21f0de7d77f51b4df734c668158a90dfcfd44fd7ef918e9616ddd9d54009be2
+  channel: null
+  license: Apache-2.0
+  timestamp: 1793726407377
 - pypi: ./
   name: ttnn
   requires_dist:

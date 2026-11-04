@@ -39,27 +39,27 @@ The fork's source patches, all maintained here:
 | skip unpaired device markers instead of aborting  | `tt_metal/impl/profiler/profiler.cpp`                        |
 | `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                               |
 | ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/ttt_compat/tt/model_config.py`           |
-| ship the ttsim version pin and release            | `setup.py`                                                   |
+| ship the ttsim version pin                        | `setup.py`                                                   |
 | bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                        |
 | build in pixi                                     | `.gitattributes`, `.gitignore`                               |
 
 ## Syncing with upstream
 
-`fork-sync` runs on the track it updates. Schedules run on stable, the default branch: stable syncs on Monday and Thursday at 05:23 Taiwan time, and a daily 12:23 schedule starts a separate run on nightly so nightly uses its own workflow files. The daily schedule does not sync stable. Stable selects upstream's `releases/latest`; nightly selects the newest published `vX.Y.Z-devN` release. SFPI and ttsim follow that tag's pins, and the fork never overrides them. `tt_metal/ttsim-release` names the patched ttsim build to download, a [Stanley5249/ttsim](https://github.com/Stanley5249/ttsim) release tagged `<ttsim-version>-steps.N`, whose wall clock gives each simulator step its own time so device profiler timestamps never tie. That repository releases each new upstream ttsim release on its own daily schedule. `fork-sync.sh`, `fork-validate`, and `just fetch-ttsim` refuse a name that is not `<ttsim-version>-steps.N` with N from 1.
+`fork-sync` runs on the track it updates. Schedules run on stable, the default branch: stable syncs on Monday and Thursday at 05:23 Taiwan time, and a daily 12:23 schedule starts a separate run on nightly so nightly uses its own workflow files. The daily schedule does not sync stable. Stable selects upstream's `releases/latest`; nightly selects the newest published `vX.Y.Z-devN` release. SFPI and ttsim follow that tag's pins, and the fork never overrides them. `pixi.toml` pins the patched ttsim build by URL and sha256 in the `runtime` feature, and `pixi.lock` locks it. The build is the conda package of a [Stanley5249/ttsim](https://github.com/Stanley5249/ttsim) release tagged `<ttsim-version>-steps.N`, whose wall clock gives each simulator step its own time so device profiler timestamps never tie. That repository releases each new upstream ttsim release on its own daily schedule. `fork-sync.sh` and `fork-validate` refuse a pin that is not `<ttsim-version>-steps.N` with N from 1.
 
 One run does the whole update:
 
 1. `fork-sync.sh <track> [tag]` resolves the tag to a commit and stops with result `current` when the track already contains it.
-2. When the tag moves `ttsim-version`, `fork-ttsim.py` picks the highest published `steps.N` build of the new pin whose `libttsim_wh.so` and `libttsim_bh.so` are non-empty and carry a sha256 digest. If no build exists yet, the script stops with result `waiting`, before merging or pushing anything, but only while the new pin is upstream ttsim's highest formal release and is less than 48 hours old; the next scheduled run retries. An older pin, a prerelease, an overdue build, a broken build, or an API error fails the run with the fix in the message. An unchanged pin keeps the track's build.
-3. The script merges the tag into `chore/sync-<track>-<tag>` with a merge commit, never by rebasing fork patches, and resumes that branch when it already exists on the fork. It then commits the selected build to `ttsim-release`, keeping its repository, and reports result `ready` with the final commit.
+2. When the tag moves `ttsim-version`, `fork-ttsim.py` picks the highest published `steps.N` build of the new pin whose `libttsim_wh.so`, `libttsim_bh.so`, and `.conda` package are non-empty and carry a sha256 digest. If no build exists yet, the script stops with result `waiting`, before merging or pushing anything, but only while the new pin is upstream ttsim's highest formal release and is less than 48 hours old; the next scheduled run retries. An older pin, a prerelease, an overdue build, a broken build, or an API error fails the run with the fix in the message. An unchanged pin keeps the track's build.
+3. The script merges the tag into `chore/sync-<track>-<tag>` with a merge commit, never by rebasing fork patches, and resumes that branch when it already exists on the fork. It then rewrites the pin in `pixi.toml`, runs `pixi lock`, commits both files together, and reports result `ready` with the final commit.
 4. The workflow pushes the update branch, then `fork-release` numbers the release, validates that exact commit, fast-forwards the track to it and tags it `<upstream-tag>-conda.N` in one atomic ref update, and publishes the release with the artifacts that the smoke tests used.
 5. Review the release and the Actions summary afterwards, and retire source patches when upstream provides equivalent behavior.
 
-The script exits with status 2 on a merge conflict and leaves the merge in progress. Any other failure, such as a fetch or pin check, exits with another status and is not a conflict. To resolve a conflict, commit or stash local edits, run `.github/scripts/fork-sync.sh <track> <tag>` from a full clone with an `upstream` remote and `gh auth login` done, since a ttsim pin change asks the GitHub API for builds. Resolve and commit the merge, rerun the command, push the update branch with `git push origin HEAD`, and rerun `fork-sync` on the track with the same tag. If the track moves during validation, promotion fails and nothing is tagged. The next run resumes the update branch and merges the moved track into it, keeping any manual resolution.
+The script exits with status 2 on a merge conflict and leaves the merge in progress. Any other failure, such as a fetch or pin check, exits with another status and is not a conflict. To resolve a conflict, commit or stash local edits, run `.github/scripts/fork-sync.sh <track> <tag>` from a full clone with an `upstream` remote, pixi, and `gh auth login` done, since a ttsim pin change asks the GitHub API for builds and updates `pixi.lock`. Resolve and commit the merge, rerun the command, push the update branch with `git push origin HEAD`, and rerun `fork-sync` on the track with the same tag. If the track moves during validation, promotion fails and nothing is tagged. The next run resumes the update branch and merges the moved track into it, keeping any manual resolution.
 
 A release tag at the track's tip records the intent to release it. When a sync finds the track current and its tip tagged or drafted but not published, it validates the tip again and finishes that release without moving the track; without a tag or draft it releases nothing. One atomic ref update fast-forwards the track and creates the tag, so a moved track always carries its release tag, and no tag names an update commit that missed the track.
 
-Upstream updates change `.github/workflows/`, which `GITHUB_TOKEN` cannot push. The `FORK_SYNC_TOKEN` secret, a fine-grained token for this repository with Contents and Workflows write, pushes the update branch, moves the track, and creates the release tag. Only those steps read it, after the merge code has finished, and they run no repository code; builds and tests use read-only tokens. Pushes with this token trigger push workflows like a person's push, so the tagging job first disables upstream workflows with `GITHUB_TOKEN`.
+Upstream updates change `.github/workflows/`, which `GITHUB_TOKEN` cannot push. The `FORK_SYNC_TOKEN` secret, a fine-grained token for this repository with Contents and Workflows write, pushes the update branch, moves the track, and creates the release tag. `pixi lock` runs merged code through `setup.py`, so the job that merges holds no write token and hands its update to a separate `push` job as a git bundle. Only that job and the tagging job read the sync token, and they run no repository code; builds and tests use read-only tokens. Pushes with this token trigger push workflows like a person's push, so the tagging job first disables upstream workflows with `GITHUB_TOKEN`.
 
 For build-only validation, start `fork-release` on any branch with `release` disabled. It labels the wheel `conda.test` and uses Contents read permission. To release a fork-owned change without an upstream update, start `fork-release` on stable or nightly with `release` enabled; it tags and publishes the commit it validated and does not move the track. Keep local work to preparation and `just ci`; full builds and simulator tests run on GitHub Actions.
 
@@ -70,8 +70,8 @@ Fork workflows match `.github/workflows/fork-*.yaml`.
 ```text
 fork-checks    push              checks -- disable-upstream (tracks, update branches)
 fork-sync      schedule/manual   nightly (schedule only: starts nightly's run)
-                                 prepare -- fork-release (ready: promote, release;
-                                                          current: resume a started release)
+                                 prepare -- push -- fork-release (ready: promote, release;
+                                                                  current: resume a started release)
 fork-release   manual/reusable   version --+-- fork-validate --+-- ref -- release -- notify
                                            +-- notes ----------+   (promote, tag) (publish)
 fork-validate  reusable          checks + metadata -- build -- smoke [wh, bh]
@@ -100,9 +100,10 @@ Sizes are from one local build. A cold `just build` takes about 32 min locally a
 | `runtime/`                               | `just build`                     | 0.4 GB |
 | `~/.cache/cpm/`                          | `just build`                     | 4.0 GB |
 | `~/.cache/ccache/`                       | `just build`                     | 0.6 GB |
-| `sim/`                                   | `just fetch-ttsim`               | < 1 MB |
 | `generated/`, `~/.cache/tt-metal-cache/` | `just test`, `just trace`        | 2 GB   |
 | `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | 0.4 GB |
+
+`just link-ttsim`, which `just test` and `just trace` run first, writes one path outside the table's sizes: the symlink `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library, and `.github/actions/setup-ttsim` belongs to upstream's disabled workflows.
 
 The pixi environments have separate roles. `default` runs local builds and tests with editable ttnn, `ci` runs repository checks, and `wheel` validates the packaged wheel without the editable package shadowing it. Removing an inactive environment requires reinstalling it from the lockfile when next used. The wheel environment also needs the wheel installation step used by validation.
 
@@ -133,7 +134,7 @@ git status --short
 - **Packaging outputs**: `dist/` and `build_wheel/` can be removed after saving any unpublished assets that are still needed. Recreating packages needs a working local build.
 - **Build caches**: removing `~/.cache/cpm/` forces source downloads on later builds. Removing `~/.cache/ccache/` loses reusable compilation results. Keep both when continuing local builds.
 - **Kernel cache**: removing `~/.cache/tt-metal-cache/` forces kernel recompilation. This cache is shared with tracer runs and other checkouts.
-- **Packages and simulator**: prefer package-manager cache-clean commands for shared rattler and uv caches. Remove `sim/` as a whole, including `.version`, only when a fresh simulator download is wanted. `just fetch-ttsim` restores it.
+- **Packages**: prefer package-manager cache-clean commands for shared rattler and uv caches.
 
 For example, after stopping captures and saving any needed profiling results, this removes local logs and capture files without deleting the build or environments:
 

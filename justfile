@@ -33,66 +33,39 @@ build *args:
         --cpm-source-cache "{{ cpm_cache }}" \
         --toolchain-path cmake/x86_64-linux-clang-20-conda-toolchain.cmake "$@"
 
-# Download the ttsim library that tt_metal/ttsim-release names into sim/: the fork's patched build of the
-# upstream ttsim release that tt_metal/ttsim-version pins
-[arg("arch", long, pattern="wh|bh|", help="wh: Wormhole, bh: Blackhole; by default the arch already in sim/, else wh")]
+# UMD reads soc_descriptor.yaml beside TT_METAL_SIMULATOR. This tree owns the
+# descriptor, because real hardware reads the same files, and the ttsim package
+# ships none. A new symlink in the environment joins them; it never writes
+# through a package file, which can be a hard link into pixi's cache.
+
+# Link this tree's SOC descriptor beside the ttsim library; TTSIM_ARCH=bh selects Blackhole
 [group("setup")]
 [script]
-fetch-ttsim arch="":
-    read -r repo tag < tt_metal/ttsim-release
-    upstream=$(tr -d '[:space:]' < tt_metal/ttsim-version)
-    if [[ "$tag" != "$upstream"-steps.* || ! "${tag#"$upstream"-steps.}" =~ ^[1-9][0-9]*$ ]]; then
-        echo "tt_metal/ttsim-release names $tag, not a $upstream-steps.N build of ttsim $upstream" >&2
-        exit 1
-    fi
-    # test and trace call this without an arch, so they keep the one in sim/.
-    arch={{ arch }}
-    if [ -z "$arch" ]; then
-        arch=$(cut -d' ' -f2 sim/.version 2>/dev/null || true)
-        arch=${arch:-wh}
-    fi
-    case $arch in
-        wh) soc=wormhole_b0_80_arch.yaml ;;
-        bh) soc=blackhole_140_arch.yaml ;;
+link-ttsim:
+    sim=$(pixi run printenv TT_METAL_SIMULATOR)
+    case $(basename "$sim") in
+        libttsim_wh.so) soc=wormhole_b0_80_arch.yaml ;;
+        libttsim_bh.so) soc=blackhole_140_arch.yaml ;;
+        *)
+            echo "no SOC descriptor for TT_METAL_SIMULATOR=$sim" >&2
+            exit 1
+            ;;
     esac
-    # .version names the release and arch in sim/, so a rerun downloads nothing.
-    if [ "$(cat sim/.version 2>/dev/null)" = "$tag $arch" ]; then
-        exit 0
-    fi
-    # GitHub records a sha256 digest for each release asset, which upstream's
-    # tt-llk/tests/run_ttsim_regression.sh also checks against.
-    asset=libttsim_$arch.so
-    # A GH_TOKEN lifts the API's anonymous rate limit, which CI runners share.
-    hash=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
-        "https://api.github.com/repos/$repo/releases/tags/$tag" |
-        ASSET=$asset python3 -c '
-    import json, os, sys
-    for a in json.load(sys.stdin)["assets"]:
-        if a["name"] == os.environ["ASSET"]:
-            print(a["digest"].removeprefix("sha256:"))
-    ')
-    if [ -z "$hash" ]; then
-        echo "no sha256 digest for $asset in $repo $tag" >&2
-        exit 1
-    fi
-    mkdir -p sim
-    # Verify before replacing, so a bad download never reaches TT_METAL_SIMULATOR.
-    curl -fsSL -o sim/libttsim.so.part "https://github.com/$repo/releases/download/$tag/$asset"
-    echo "$hash  sim/libttsim.so.part" | sha256sum -c --quiet -
-    mv sim/libttsim.so.part sim/libttsim.so
-    cp "tt_metal/soc_descriptors/$soc" sim/soc_descriptor.yaml
-    echo "$tag $arch" > sim/.version
+    desc="{{ justfile_directory() }}/tt_metal/soc_descriptors/$soc"
+    link=$(dirname "$sim")/soc_descriptor.yaml
+    # ln -f removes the link first, which a running test could trip on.
+    [ "$(readlink "$link")" = "$desc" ] || ln -sf "$desc" "$link"
 
 # Run pytest on ttsim; args go to pytest
 [group("test")]
 [positional-arguments]
-test *args: fetch-ttsim
+test *args: link-ttsim
     pixi run pytest "$@"
 
 # Profile a Python script on ttsim with Tracy and the device profiler; args go to the script
 [group("test")]
 [positional-arguments]
-trace script *args: fetch-ttsim
+trace script *args: link-ttsim
     pixi run python -m tracy -p -r "$@"
 
 # Package the current build as a ttnn wheel in dist/; label becomes the local version, such as conda.1

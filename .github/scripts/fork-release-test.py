@@ -11,6 +11,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -253,6 +254,7 @@ class TtsimTests(unittest.TestCase):
 
     def build(self, tag, **changes):
         assets = [{"name": n, "size": 1, "digest": "sha256:" + "0" * 64} for n in ttsim.ASSETS]
+        assets.append({"name": ttsim.package(tag), "size": 1, "digest": "sha256:" + "a" * 64})
         return {"tag_name": tag, "draft": False, "prerelease": False, "assets": assets} | changes
 
     def upstream(self, tag, hours=1, **changes):
@@ -273,7 +275,19 @@ class TtsimTests(unittest.TestCase):
             self.build("v1.1.0-steps.012"),
             self.build("v1.2.0-steps.1"),
         ]
-        self.assertEqual(self.decide(fork, []), ("ready", "v1.1.0-steps.10"))
+        self.assertEqual(self.decide(fork, []), ("ready", "v1.1.0-steps.10", "a" * 64))
+
+    def test_pin_rejects_bad_arguments_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = 'ttsim = { url = "old", sha256 = "old" }\n'
+            manifest = Path(directory) / "pixi.toml"
+            manifest.write_text(source)
+            with mock.patch.object(ttsim, "MANIFEST", manifest):
+                for release, sha256 in [("nonsense-steps.1", "a" * 64), ("v1.1.0-steps.0", "a" * 64), ("v1.1.0-steps.1", "abc")]:
+                    with self.subTest(release=release, sha256=sha256):
+                        with self.assertRaises(ttsim.Fail):
+                            ttsim.pin(release, sha256)
+                        self.assertEqual(manifest.read_text(), source)
 
     def test_broken_highest_build_fails(self):
         for asset in [{"size": 0}, {"digest": None}, {"digest": "sha1:00"}]:
@@ -282,10 +296,12 @@ class TtsimTests(unittest.TestCase):
                 fork[0]["assets"][0] |= asset
                 with self.assertRaisesRegex(ttsim.Fail, "libttsim_wh.so"):
                     self.decide(fork, [])
-        fork = [self.build("v1.1.0-steps.1")]
-        fork[0]["assets"].pop()
-        with self.assertRaisesRegex(ttsim.Fail, "libttsim_bh.so"):
-            self.decide(fork, [])
+        for index, name in [(1, "libttsim_bh.so"), (2, r"ttsim-1\.1\.0\+steps\.1-0\.conda")]:
+            with self.subTest(name):
+                fork = [self.build("v1.1.0-steps.1")]
+                del fork[0]["assets"][index]
+                with self.assertRaisesRegex(ttsim.Fail, name):
+                    self.decide(fork, [])
 
     def test_missing_build_waits_only_for_a_new_highest_release(self):
         self.assertEqual(self.decide([], [self.upstream("v1.0.0", 900), self.upstream("v1.1.0", 47.9)])[0], "waiting")

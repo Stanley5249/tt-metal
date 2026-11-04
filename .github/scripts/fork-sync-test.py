@@ -20,6 +20,17 @@ if isinstance(data, str):
     sys.exit(f"gh: {data}")
 print(json.dumps([data]))
 """
+# Stands in for `pixi lock`, so a test can see that the lockfile moved with the pin.
+FAKE_PIXI = """#!/usr/bin/env bash
+[ "$1" = lock ] && sha256sum pixi.toml > pixi.lock
+"""
+PIN = 'ttsim = {{ url = "https://github.com/Stanley5249/ttsim/releases/download/{tag}/{package}", sha256 = "{sha}" }}\n'
+
+
+def manifest(tag="v1.0.0-steps.1", sha="1" * 64):
+    version, steps = tag.split("-steps.")
+    package = f"ttsim-{version[1:]}%2Bsteps.{steps}-0.conda"
+    return "[feature.runtime.dependencies]\n" + PIN.format(tag=tag, package=package, sha=sha)
 
 
 def ago(hours):
@@ -27,8 +38,10 @@ def ago(hours):
     return (now - datetime.timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def ttsim_build(tag, assets=("libttsim_wh.so", "libttsim_bh.so")):
+def ttsim_build(tag):
     digest = "sha256:" + "0" * 64
+    version, steps = tag.split("-steps.")
+    assets = ("libttsim_wh.so", "libttsim_bh.so", f"ttsim-{version[1:]}+steps.{steps}-0.conda")
     return {
         "tag_name": tag,
         "draft": False,
@@ -73,7 +86,8 @@ class ForkSyncTests(unittest.TestCase):
         self.git(self.work, "remote", "rename", "origin", "upstream")
         self.git(self.work, "remote", "add", "origin", str(self.origin))
         self.git(self.work, "switch", "-q", "-c", "stable", "v1.0.0")
-        self.write(self.work, "tt_metal/ttsim-release", "Stanley5249/ttsim v1.0.0-steps.1\n")
+        self.write(self.work, "pixi.toml", manifest())
+        self.write(self.work, "pixi.lock", "initial\n")
         for script in ["fork-select-tag.sh", "fork-ttsim.py", "fork-upstream-tags.sh", "fork-version.sh"]:
             self.write(self.work, f".github/scripts/{script}", (SCRIPTS / script).read_text())
         self.write(self.work, "fork.txt", "fork change\n")
@@ -87,6 +101,8 @@ class ForkSyncTests(unittest.TestCase):
         binary.mkdir()
         (binary / "gh").write_text(FAKE_GH)
         (binary / "gh").chmod(0o755)
+        (binary / "pixi").write_text(FAKE_PIXI)
+        (binary / "pixi").chmod(0o755)
         self.env["PATH"] = f"{binary}:{self.env['PATH']}"
         self.releases({})
 
@@ -284,7 +300,11 @@ class ForkSyncTests(unittest.TestCase):
         outputs = self.outputs()
         self.assertEqual(outputs["result"], "ready")
         self.assertEqual(outputs["sha"], self.head())
-        self.assertEqual((self.work / "tt_metal/ttsim-release").read_text(), "Stanley5249/ttsim v1.1.0-steps.10\n")
+        self.assertEqual((self.work / "pixi.toml").read_text(), manifest("v1.1.0-steps.10", "0" * 64))
+        self.assertIn("pixi.toml", (self.work / "pixi.lock").read_text())
+        self.assertEqual(
+            self.git(self.work, "show", "--name-only", "--format=", "HEAD").split(), ["pixi.lock", "pixi.toml"]
+        )
         self.assertEqual(self.git(self.work, "log", "-1", "--format=%s"), "build: use ttsim v1.1.0-steps.10\n")
         # A retry from the pushed branch keeps its commit and adds none.
         sha = self.head()
@@ -323,30 +343,60 @@ class ForkSyncTests(unittest.TestCase):
     def test_ttsim_bump_rejects_a_build_without_digests(self):
         self.bump_ttsim()
         self.advance()
-        broken = ttsim_build("v1.1.0-steps.1")
-        del broken["assets"][1]["digest"]
-        self.releases({"Stanley5249/ttsim": [broken]})
-        self.assertIn("libttsim_bh.so", self.sync(success=False, status=1))
+        for index, name in enumerate(["libttsim_wh.so", "libttsim_bh.so", "ttsim-1.1.0+steps.1-0.conda"]):
+            with self.subTest(name):
+                broken = ttsim_build("v1.1.0-steps.1")
+                del broken["assets"][index]["digest"]
+                self.releases({"Stanley5249/ttsim": [broken]})
+                self.assertIn(name, self.sync(success=False, status=1))
 
     def test_unchanged_ttsim_pin_keeps_the_track_build(self):
         # A newer build of the same pin does not move it, and gh is not asked.
         self.releases({"Stanley5249/ttsim": "unused", "tenstorrent/ttsim": "unused"})
         self.advance()
         self.sync()
-        self.assertEqual((self.work / "tt_metal/ttsim-release").read_text(), "Stanley5249/ttsim v1.0.0-steps.1\n")
+        self.assertEqual((self.work / "pixi.toml").read_text(), manifest())
+        self.assertEqual((self.work / "pixi.lock").read_text(), "initial\n")
 
-    def test_ttsim_release_needs_a_steps_number(self):
+    def test_ttsim_pin_needs_a_build_of_the_upstream_version(self):
         self.advance()
         start = self.head()
-        for name in ["v1.0.0-steps.0", "v1.0.0-steps.1a", "v1.0.0-rc1", "v1.0.0"]:
+        url = "https://github.com/Stanley5249/ttsim/releases/download"
+        sha = "1" * 64
+        pins = {
+            "steps zero": manifest("v1.0.0-steps.0"),
+            "other version": manifest("v1.1.0-steps.1"),
+            "other repository": manifest().replace("Stanley5249", "tenstorrent"),
+            "package of another build": manifest().replace("steps.1-0", "steps.2-0"),
+            "no steps": f'[feature.runtime.dependencies]\nttsim = {{ url = "{url}/v1.0.0/ttsim.conda", sha256 = "{sha}" }}\n',
+            "short url": f'[feature.runtime.dependencies]\nttsim = {{ url = "x", sha256 = "{sha}" }}\n',
+        }
+        for name, pin in pins.items():
             with self.subTest(name):
                 self.git(self.work, "switch", "-q", "--discard-changes", "stable")
                 self.git(self.work, "branch", "-D", "chore/sync-stable-v1.0.1", success=None)
                 self.git(self.work, "reset", "-q", "--hard", start)
-                self.write(self.work, "tt_metal/ttsim-release", f"Stanley5249/ttsim {name}\n")
+                self.write(self.work, "pixi.toml", pin)
                 self.commit(self.work, "bad ttsim build")
                 self.git(self.work, "push", "-q", "-f", "origin", "stable")
                 self.assertIn("not a v1.0.0-steps.N", self.sync(success=False, status=1))
+
+    def test_ttsim_pin_must_exist_with_a_sha256(self):
+        self.advance()
+        start = self.head()
+        pins = {
+            "no ttsim pin": "[feature.runtime.dependencies]\n",
+            "not 64 hex digits": manifest(sha="abc"),
+        }
+        for message, pin in pins.items():
+            with self.subTest(message):
+                self.git(self.work, "switch", "-q", "--discard-changes", "stable")
+                self.git(self.work, "branch", "-D", "chore/sync-stable-v1.0.1", success=None)
+                self.git(self.work, "reset", "-q", "--hard", start)
+                self.write(self.work, "pixi.toml", pin)
+                self.commit(self.work, "bad ttsim pin")
+                self.git(self.work, "push", "-q", "-f", "origin", "stable")
+                self.assertIn(message, self.sync(success=False, status=1))
 
     def test_fetch_failure_is_not_a_conflict(self):
         self.advance()
