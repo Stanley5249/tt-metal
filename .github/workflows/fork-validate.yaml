@@ -51,12 +51,11 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - run: .github/scripts/fork-upstream-tags.sh
       - id: version
         env:
           LABEL: ${{ inputs.label }}
         run: |
-          # The upstream base names the track, so candidates need no track input.
+          # The recorded upstream base names the track, so candidates need no track input.
           metadata=$(bash .github/scripts/fork-version.sh auto HEAD "$LABEL")
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
           # These dependencies belong to upstream, including on a patched candidate.
@@ -88,8 +87,6 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
           submodules: recursive
-      # `just wheel` takes its version from the upstream tag.
-      - run: .github/scripts/fork-upstream-tags.sh
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
           pixi-version: v0.81.0

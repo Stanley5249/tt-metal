@@ -82,15 +82,13 @@ jobs:
           echo "::error::Release only on stable or nightly"
           exit 1
       # The scripts come from this branch, not from REF, which may hold
-      # upstream's new commits. Full history and tags without blobs, so git
-      # describe finds the upstream tag; fetch-depth 0 also fetches update
-      # branches.
+      # upstream's new commits. Full history and tags without blobs, so the
+      # upstream base can be checked; fetch-depth 0 also fetches update branches.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - run: .github/scripts/fork-upstream-tags.sh "$REF"
       # bash, unlike the default shell, sets pipefail, so a failed release list
       # stops the run instead of restarting the count at conda.1.
       - id: version

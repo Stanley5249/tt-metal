@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Resolve already-fetched upstream tags into Actions outputs and a wheel version.
+# Resolve the upstream base recorded in pixi.toml into Actions outputs and a wheel
+# version. git describe cannot name the base: upstream's commit dates are out of
+# order, so it can prefer an older tag over the one that was merged.
 # Usage: fork-version.sh <stable|nightly|auto> [ref=HEAD] [label]
 # auto infers the track from the upstream tag; a named track must match it.
 set -euo pipefail
@@ -18,9 +20,23 @@ if [ -n "$label" ] && [[ ! "$label" =~ ^[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*$ ]]; th
     exit 1
 fi
 commit=$(git rev-parse --verify --end-of-options "$ref^{commit}")
-base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-conda.*' --exclude '*-rc*' "$commit")
+recorded=$(git show "$commit:pixi.toml" | sed -n '0,/^version = /s/^version = "\(.*\)"$/\1/p')
+if [ -z "$recorded" ]; then
+    echo "$ref records no upstream version in pixi.toml" >&2
+    exit 1
+fi
+base=v${recorded/.dev/-dev}
 if [[ ! "$base" =~ $pattern ]]; then
     echo "$track cannot build on upstream $base" >&2
+    exit 1
+fi
+# Fork clones carry only fork release tags.
+if ! git rev-parse -q --verify "refs/tags/$base" > /dev/null; then
+    upstream=$(git remote get-url upstream 2>/dev/null || printf '%s' https://github.com/tenstorrent/tt-metal.git)
+    git fetch -q --no-tags "$upstream" tag "$base"
+fi
+if ! git merge-base --is-ancestor "$base" "$commit"; then
+    echo "pixi.toml names $base, which $ref does not contain" >&2
     exit 1
 fi
 track=stable
