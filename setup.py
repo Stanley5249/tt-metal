@@ -102,6 +102,13 @@ def copy_tree_with_patterns(src_dir, dst_dir, patterns, exclude_files=[]):
             shutil.copy2(src_path, dst_path)
 
 
+def copy_required_files(src_dir, dst_dir, patterns):
+    """Copy files like copy_tree_with_patterns, but fail when a pattern matches nothing."""
+    for pattern in expand_patterns(patterns):
+        assert glob.glob(os.path.join(src_dir, pattern)), f"{pattern} matches nothing in {src_dir}"
+    copy_tree_with_patterns(src_dir, dst_dir, patterns)
+
+
 def check_sfpi_version(source_dir):
     """Fail when runtime/sfpi is not the SFPI release that tt_metal/sfpi-version pins."""
     pinned = re.search(r"^sfpi_version='(.+)'$", (source_dir / "tt_metal/sfpi-version").read_text(), re.M)
@@ -420,7 +427,7 @@ class CMakeBuild(build_ext):
             # GCC, binutils, and newlib are GPL; runtime/sfpi/README.md names their sources.
             copy_tree_with_patterns(source_dir / "tt_metal/sfpi-licenses", self.build_lib + "/ttnn/runtime/sfpi", ["*"])
         # tools/tracy/common.py finds these under TT_METAL_HOME, which can be the installed ttnn directory.
-        copy_tree_with_patterns(
+        copy_required_files(
             build_dir,
             self.build_lib + "/ttnn/build",
             [
@@ -431,13 +438,22 @@ class CMakeBuild(build_ext):
         )
         # The tools and viewer link these, so their notices travel with the binaries.
         tracy_licenses = self.build_lib + "/ttnn/build/profiler/licenses"
-        copy_tree_with_patterns(
+        copy_required_files(
             source_dir / "tt_metal/third_party", tracy_licenses, ["tracy/LICENSE", "tracy/public/libbacktrace/LICENSE"]
         )
-        copy_tree_with_patterns(
+        copy_required_files(
             build_dir / "profiler/build_wasm/.cpm-cache",
             tracy_licenses,
-            ["*/*/LICENSE*", "*/*/LICENSES/*", "*/*/COPYING*"],
+            [
+                "capstone/*/LICENSES/{LICENSE.TXT,LICENSE_BSD_3_CLAUSE.txt,LICENSE_LLVM.TXT}",
+                "freetype/*/LICENSE.TXT",
+                "freetype/*/docs/{FTL.TXT,GPLv2.TXT}",
+                "imgui/*/LICENSE.txt",
+                "json/*/LICENSE.MIT",
+                "md4c/*/LICENSE.md",
+                "ppqsort/*/LICENSE",
+                "zstd/*/{LICENSE,COPYING}",
+            ],
         )
         copy_tree_with_patterns(source_dir / "ttnn", self.build_lib + "/ttnn", ttnn_patterns)
         copy_tree_with_patterns(source_dir / "ttnn/cpp", self.build_lib + "/ttnn/ttnn/cpp", ttnn_cpp_patterns)
