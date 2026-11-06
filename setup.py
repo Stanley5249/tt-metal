@@ -414,6 +414,26 @@ class CMakeBuild(build_ext):
         if BUNDLE_SFPI:
             # GCC, binutils, and newlib are GPL; runtime/sfpi/README.md names their sources.
             copy_tree_with_patterns(source_dir / "tt_metal/sfpi-licenses", self.build_lib + "/ttnn/runtime/sfpi", ["*"])
+        # tools/tracy/common.py finds these under TT_METAL_HOME, which can be the installed ttnn directory.
+        copy_tree_with_patterns(
+            build_dir,
+            self.build_lib + "/ttnn/build",
+            [
+                "tools/profiler/bin/tracy-capture",
+                "tools/profiler/bin/tracy-csvexport",
+                "profiler/build_wasm/{index.html,favicon.svg,tracy-profiler.js,tracy-profiler.wasm}",
+            ],
+        )
+        # The tools and viewer link these, so their notices travel with the binaries.
+        tracy_licenses = self.build_lib + "/ttnn/build/profiler/licenses"
+        copy_tree_with_patterns(
+            source_dir / "tt_metal/third_party", tracy_licenses, ["tracy/LICENSE", "tracy/public/libbacktrace/LICENSE"]
+        )
+        copy_tree_with_patterns(
+            build_dir / "profiler/build_wasm/.cpm-cache",
+            tracy_licenses,
+            ["*/*/LICENSE*", "*/*/LICENSES/*", "*/*/COPYING*"],
+        )
         copy_tree_with_patterns(source_dir / "ttnn", self.build_lib + "/ttnn", ttnn_patterns)
         copy_tree_with_patterns(source_dir / "ttnn/cpp", self.build_lib + "/ttnn/ttnn/cpp", ttnn_cpp_patterns)
         copy_tree_with_patterns(source_dir / "tt_metal", self.build_lib + "/ttnn/tt_metal", tt_metal_patterns)
