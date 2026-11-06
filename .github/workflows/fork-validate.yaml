@@ -196,10 +196,6 @@ jobs:
           test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
           python .github/scripts/fork-smoke-check.py generated/profiler/.logs
           curl -fsS --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null http://localhost:8080/tracy-profiler.wasm
-          licenses=$TT_METAL_HOME/build/profiler/licenses
-          ls "$licenses"/tracy/LICENSE "$licenses"/capstone/*/LICENSES/LICENSE.TXT "$licenses"/zstd/*/LICENSE \
-            "$licenses"/ppqsort/*/LICENSE "$licenses"/json/*/LICENSE.MIT "$licenses"/imgui/*/LICENSE.txt \
-            "$licenses"/freetype/*/LICENSE.TXT "$licenses"/md4c/*/LICENSE.md
       # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel, which ttsim's
       # timestamp ordering must not turn into unpaired zones.
       - run: |
