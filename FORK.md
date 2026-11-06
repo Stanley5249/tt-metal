@@ -1,6 +1,6 @@
 # Stanley5249/tt-metal
 
-This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship a ttnn wheel and Tracy tools. This file stays on the fork's two tracks.
+This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship a ttnn wheel that bundles the Tracy tools and viewer, and, until tt-vllm-tracer moves off it, the same tools as a tarball. This file stays on the fork's two tracks.
 
 ## Branches
 
@@ -41,6 +41,7 @@ The fork's source patches, all maintained here:
 | ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/tt_transformers/tt/model_config.py`      |
 | ship the ttsim version pin                        | `setup.py`                                                   |
 | bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                        |
+| bundle the Tracy tools, viewer, and licenses      | `setup.py`                                                   |
 | build in pixi                                     | `.gitattributes`, `.gitignore`                               |
 
 ## Syncing with upstream
@@ -153,6 +154,7 @@ Upstream's `.github/workflows/wheels.yaml` builds with cibuildwheel in manylinux
 | Tracy                      | off                  | on                                 |
 | Multihost MPI              | on, bundled          | off                                |
 | SFPI compiler              | installed separately | bundled                            |
+| Tracy tools and viewer     | not included         | bundled                            |
 | tt_transformers' `models/` | requires a checkout  | bundled                            |
 | Platform tag               | `manylinux`          | `linux_x86_64`, needs pixi runtime |
 | Version                    | upstream tag         | upstream version plus `+conda.N`   |

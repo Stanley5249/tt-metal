@@ -183,13 +183,23 @@ jobs:
       - run: python .github/scripts/fork-models-check.py
       - run: just link-ttsim
       - run: python .github/scripts/fork-smoke.py
-      # Test the shipped capture tools and simulator device timestamps too.
+      # Point tracy at the wheel's tools and keep its logs out of site-packages.
       - run: |
-          tar -xzf dist/tracy-tools-linux_x86_64.tar.gz
+          {
+            echo "TT_METAL_HOME=$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')/ttnn"
+            echo "TT_METAL_PROFILER_DIR=$PWD/generated/profiler"
+          } >> "$GITHUB_ENV"
+      # Test the shipped capture tools and viewer, and simulator device timestamps too.
+      - run: |
           python -m tracy -p -r --check-exit-code .github/scripts/fork-smoke.py
           test -n "$(find generated -name '*.tracy' -size +0c -print -quit)"
           test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
           python .github/scripts/fork-smoke-check.py generated/profiler/.logs
+          curl -fsS --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null http://localhost:8080/tracy-profiler.wasm
+          licenses=$TT_METAL_HOME/build/profiler/licenses
+          ls "$licenses"/tracy/LICENSE "$licenses"/capstone/*/LICENSES/LICENSE.TXT "$licenses"/zstd/*/LICENSE \
+            "$licenses"/ppqsort/*/LICENSE "$licenses"/json/*/LICENSE.MIT "$licenses"/imgui/*/LICENSE.txt \
+            "$licenses"/freetype/*/LICENSE.TXT "$licenses"/md4c/*/LICENSE.md
       # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel, which ttsim's
       # timestamp ordering must not turn into unpaired zones.
       - run: |
