@@ -915,29 +915,37 @@ static void ReadDeviceProfilerResultsImpl(
     }
 
     if (env.get_rtoptions().get_simulator_enabled()) {
-        // BRISC reports a program done before its profiler flush, and ttsim only advances while the
-        // host touches the device. Poll each core that started profiling until its flush lands.
+        // BRISC reports a program done before its profiler flush, and ttsim advances only when the host
+        // reads the device. Poll each core that started profiling until its flush lands; every read is
+        // one more simulation tick, the same ticks on every run.
+        constexpr int maxSimulatorReads = 1000;
         const auto& hal = env.get_hal();
         for (const CoreCoord& core : virtual_cores) {
-            const HalProgrammableCoreType core_type =
-                tt::llrt::get_core_type(env, device->id(), core);
+            const HalProgrammableCoreType core_type = tt::llrt::get_core_type(env, device->id(), core);
             DeviceAddr control_vector_addr =
                 hal.get_dev_addr(core_type, HalL1MemAddrType::PROFILER) +
                 hal.get_dev_msgs_factory(core_type).offset_of<dev_msgs::profiler_msg_t>(
                     dev_msgs::profiler_msg_t::Field::control_vector);
-            for (int i = 0; i < 1000; i++) {
+            bool is_core_done = false;
+            for (int i = 0; i < maxSimulatorReads; i++) {
                 const std::vector<std::uint32_t> control_buffer = env.get_cluster().read_core(
                     device->id(), core, control_vector_addr, kernel_profiler::PROFILER_L1_CONTROL_BUFFER_SIZE);
                 if (control_buffer[kernel_profiler::NOC_X] == 0 ||
                     control_buffer[kernel_profiler::PROFILER_DONE] == 1) {
+                    is_core_done = true;
                     break;
                 }
+            }
+            if (!is_core_done) {
+                std::string msg = fmt::format(
+                    "Device profiling never finished on device {}, worker core {}, {}", device->id(), core.x, core.y);
+                TracyMessageC(msg.c_str(), msg.size(), tracy::Color::Tomato3);
+                log_warning(tt::LogMetal, "{}", msg);
             }
         }
     }
 
-    TT_FATAL(
-        !ctx.dprint_server(), "Debug print server is running, cannot read device profiler data");
+    TT_FATAL(!ctx.dprint_server(), "Debug print server is running, cannot read device profiler data");
 
     if (env.get_rtoptions().get_profiler_trace_only() || env.get_rtoptions().get_profiler_accumulate()) {
         // Accumulate mode keeps the un-pushed residual in L1 (only flushing to DRAM when the
