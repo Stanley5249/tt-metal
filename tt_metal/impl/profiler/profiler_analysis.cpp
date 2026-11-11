@@ -302,6 +302,15 @@ std::optional<int> quasar_processor_clock_mhz(tracy::RiscType risc) {
     return std::nullopt;
 }
 
+int profiler_aiclk_mhz(const Cluster& cluster, ChipId device_id) {
+    constexpr int nominal_simulator_aiclk_mhz = 1000;
+    const int aiclk_mhz = cluster.get_device_aiclk(device_id);
+    if (aiclk_mhz == 0 && cluster.get_target_device_type() == tt::TargetDevice::Simulator) {
+        return nominal_simulator_aiclk_mhz;
+    }
+    return aiclk_mhz;
+}
+
 AnalysisResults parse_duration(
     const Cluster& cluster,
     const AnalysisConfig& analysis_config,
@@ -349,11 +358,8 @@ AnalysisResults parse_duration(
         if (result != PROGRAM_INVALID_SINGLE_ANALYSIS_RESULT) {
             TT_ASSERT(result.start_timestamp <= result.end_timestamp);
             // Quasar DM/TRISC use hardcoded clock frequencies for now
-            int chip_frequency_mhz =
-                quasar_processor_clock_mhz(zone_start_risc).value_or(cluster.get_device_aiclk(device_id));
-            if (chip_frequency_mhz == 0) {
-                chip_frequency_mhz = 1000;  // functional ttsim reports no AICLK
-            }
+            const int chip_frequency_mhz =
+                quasar_processor_clock_mhz(zone_start_risc).value_or(profiler_aiclk_mhz(cluster, device_id));
             result.duration = static_cast<uint64_t>(
                 std::round((result.end_timestamp - result.start_timestamp) * 1000.0 / chip_frequency_mhz));
         }

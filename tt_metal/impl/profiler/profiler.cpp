@@ -2422,12 +2422,8 @@ DeviceProfiler::DeviceProfiler(const IDevice* device, const bool new_logs [[mayb
     device_id(device->id()),
     ctx_(MetalContext::instance(extract_context_id(device))),
     env_(MetalEnvAccessor(ctx_.get_env()).impl()),
-    device_core_frequency(env_.get_cluster().get_device_aiclk(this->device_id)),
+    device_core_frequency(profiler_aiclk_mhz(env_.get_cluster(), this->device_id)),
     max_compute_cores(device->logical_grid_size().x * device->logical_grid_size().y) {
-    if (device_core_frequency == 0 && env_.get_rtoptions().get_simulator_enabled()) {
-        // ttsim reports no AICLK, so use a nominal clock that converts cycles to non-zero durations
-        device_core_frequency = 1000;
-    }
 #if defined(TRACY_ENABLE)
     ZoneScopedC(tracy::Color::Green);
     if (!getDeviceProfilerState(env_)) {
