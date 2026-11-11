@@ -19,9 +19,18 @@
 #include <tt-metalium/experimental/profiler.hpp>
 #include "impl/threading/thread_pool.hpp"
 
+namespace tt {
+class Cluster;
+}  // namespace tt
+
 namespace tt::tt_metal {
 
 class MetalContext;
+
+// The AICLK in MHz that converts device cycles to ns in profiler output. Hardware reports its clock. A functional
+// simulator reports 0, and its device time is simulation ticks, so a nominal 1000 MHz labels one tick as 1 ns: a
+// conversion convention, not a measured or predicted frequency.
+int profiler_aiclk_mhz(const tt::Cluster& cluster, ChipId device_id);
 
 enum class AnalysisType { PROGRAM_FIRST_TO_LAST_MARKER };
 
