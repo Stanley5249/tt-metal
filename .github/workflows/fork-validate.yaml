@@ -197,8 +197,8 @@ jobs:
           test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
           python .github/scripts/fork-smoke-check.py generated/profiler/.logs
           curl -fsS --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null http://localhost:8080/tracy-profiler.wasm
-      # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel, which ttsim's
-      # timestamp ordering must not turn into unpaired zones.
+      # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel; an unpaired zone
+      # aborts the profiler, which fails --check-exit-code.
       - run: |
           python -m tracy -p -r --check-exit-code --collect-noc-traces -o generated/noc .github/scripts/fork-smoke.py
           python .github/scripts/fork-smoke-check.py generated/noc/.logs --noc --expect-quick-push

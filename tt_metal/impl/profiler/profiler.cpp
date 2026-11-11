@@ -2164,22 +2164,6 @@ void DeviceProfiler::processDeviceMarkerData(std::set<tracy::TTDeviceMarker>& de
     DispatchMetaData current_dispatch_meta_data;
     std::stack<std::set<tracy::TTDeviceMarker>::iterator> start_marker_stack;
 
-    // tt-vllm-tracer: markers are ordered by timestamp, so without dropped markers an end marker that does not
-    // pair means this core/RISC's timestamps went backwards. Warn and skip it, as for dropped markers.
-    auto warnOutOfOrder = [](const tracy::TTDeviceMarker& marker, const std::string& problem) {
-        log_warning(
-            tt::LogMetal,
-            "Device marker out of timestamp order, skipped ({}): chip {}, core ({},{}), RISC {}, marker_id {}, "
-            "timestamp {}",
-            problem,
-            marker.chip_id,
-            marker.core_x,
-            marker.core_y,
-            enchantum::to_string(marker.risc),
-            marker.marker_id,
-            marker.timestamp);
-    };
-
     auto updateDeviceMarker = [&](const tracy::TTDeviceMarker& updated_marker,
                                   const std::set<tracy::TTDeviceMarker>::iterator& original_marker_it)
         -> std::pair<std::set<tracy::TTDeviceMarker>::iterator, std::set<tracy::TTDeviceMarker>::iterator> {
@@ -2223,7 +2207,10 @@ void DeviceProfiler::processDeviceMarkerData(std::set<tracy::TTDeviceMarker>& de
                 if (start_marker_stack.empty()) {
                     // Orphan ZONE_END from a dropped-marker run; skip instead of fatal.
                     if (!this->had_dropped_markers.load(std::memory_order_relaxed)) {
-                        warnOutOfOrder(marker, "end marker without a start marker");
+                        TT_FATAL(
+                            false,
+                            "End marker found without a corresponding start marker.\nEnd marker: {}",
+                            marker.to_string());
                     }
                     device_marker_it = next_device_marker_it;
                     continue;
@@ -2234,8 +2221,11 @@ void DeviceProfiler::processDeviceMarkerData(std::set<tracy::TTDeviceMarker>& de
                 if (!env_.get_rtoptions().get_profiler_trace_only()) {
                     if (start_marker_it->marker_id != marker.marker_id) {
                         if (!this->had_dropped_markers.load(std::memory_order_relaxed)) {
-                            warnOutOfOrder(
-                                marker, fmt::format("end marker after start marker_id {}", start_marker_it->marker_id));
+                            TT_FATAL(
+                                false,
+                                "Start and end marker IDs do not match.\nStart marker: {}\nEnd marker: {}",
+                                start_marker_it->to_string(),
+                                marker.to_string());
                         }
                         // Stack is misaligned due to drops; skip this end without popping.
                         device_marker_it = next_device_marker_it;
