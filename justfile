@@ -108,6 +108,16 @@ fmt:
     pixi run -e ci tombi format pixi.toml
     just --fmt
 
+# Build and run the host test of the profiler's tear-free wall clock read
+[group("verify")]
+[script]
+split-counter-test:
+    out=$(mktemp -d)
+    trap 'rm -rf "$out"' EXIT
+    pixi run clang++ -std=c++17 -Wall -Werror -I tt_metal/hw/inc \
+        .github/scripts/fork-split-counter-test.cpp -o "$out/split-counter-test"
+    "$out/split-counter-test"
+
 # Verify formatting, pixi.lock, and the fork workflows without rewriting sources
 [group("verify")]
 ci:
