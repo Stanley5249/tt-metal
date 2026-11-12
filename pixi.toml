@@ -53,7 +53,7 @@ libnuma = "*"
 mpc = "*"
 zstd = "*"
 # fork-sync moves this pin to the Stanley5249/ttsim build of tt_metal/ttsim-version.
-ttsim = { url = "https://github.com/Stanley5249/ttsim/releases/download/v1.15.1-steps.1/ttsim-1.15.1%2Bsteps.1-0.conda", sha256 = "e85d6af34a538232cf4fc2d14e7c1ceaffca89128c674da36ef9b8d901146301" }
+ttsim = { url = "https://github.com/Stanley5249/ttsim/releases/download/v1.15.1-steps.2/ttsim-1.15.1%2Bsteps.2-0.conda", sha256 = "3088395f8393b4075286f67f05c6e97931667e87f12621ce59926e6d3e5c5800" }
 
 [feature.runtime.pypi-dependencies]
 # Tracy imports its viewer server during capture, including clean-wheel runs.
