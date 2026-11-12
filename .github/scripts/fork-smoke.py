@@ -9,7 +9,13 @@ The matmul spreads over a 2x2 core grid and multicasts its inputs, so NoC
 tracing records reads, multicasts, and the profiler's mid-kernel quick_push.
 Softmax and layer_norm keep Tensix busy, which is where a ttsim whose wall
 clock stalls within a clock gives one RISC equal timestamps.
+
+The host pauses after enqueuing one add and before reading it back. ttsim runs
+no ticks while the host is away, so with device zones on host time in Tracy no
+KERNEL zone may overlap the pause, which two Tracy messages mark.
 """
+
+import time
 
 import torch
 
@@ -24,6 +30,12 @@ try:
     t = ttnn.from_torch(a, layout=ttnn.TILE_LAYOUT, device=device)
     out = ttnn.to_torch(ttnn.add(t, t))
 
+    held = ttnn.add(t, t)
+    ttnn.tracy_message("fork-smoke: host pause start")
+    time.sleep(2)
+    ttnn.tracy_message("fork-smoke: host pause end")
+    paused = ttnn.to_torch(held)
+
     x = torch.rand(64, 64, dtype=torch.bfloat16)
     y = torch.rand(64, 64, dtype=torch.bfloat16)
     tx = ttnn.from_torch(x, layout=ttnn.TILE_LAYOUT, device=device)
@@ -37,6 +49,7 @@ try:
 finally:
     ttnn.close_device(device)
 torch.testing.assert_close(out, a + a)
+torch.testing.assert_close(paused, a + a)
 print("ttnn.add matches torch on ttsim")
 torch.testing.assert_close(product.float(), x.float() @ y.float(), rtol=0.05, atol=0.5)
 print("ttnn.matmul matches torch on ttsim")
