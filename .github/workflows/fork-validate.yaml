@@ -191,18 +191,20 @@ jobs:
             echo "TT_METAL_HOME=$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')/ttnn"
             echo "TT_METAL_PROFILER_DIR=$PWD/generated/profiler"
           } >> "$GITHUB_ENV"
-      # Test the shipped capture tools and viewer, and simulator device timestamps too.
+      # Test the shipped capture tools and viewer, simulator device timestamps, and their place on host time.
       - run: |
           python -m tracy -p -r --check-exit-code .github/scripts/fork-smoke.py
           test -n "$(find generated -name '*.tracy' -size +0c -print -quit)"
           test -n "$(find generated -name 'profile_log_device.csv' -size +0c -print -quit)"
-          python .github/scripts/fork-smoke-check.py generated/profiler/.logs
+          python .github/scripts/fork-smoke-check.py generated/profiler/.logs \
+            --tracy generated/profiler/.logs/tracy_profile_log_host.tracy
           curl -fsS --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null http://localhost:8080/tracy-profiler.wasm
       # NoC tracing makes the matmul's multicasting RISCs flush mid-kernel; an unpaired zone
       # aborts the profiler, which fails --check-exit-code.
       - run: |
           python -m tracy -p -r --check-exit-code --collect-noc-traces -o generated/noc .github/scripts/fork-smoke.py
-          python .github/scripts/fork-smoke-check.py generated/noc/.logs --noc --expect-quick-push
+          python .github/scripts/fork-smoke-check.py generated/noc/.logs --noc --expect-quick-push \
+            --tracy generated/noc/.logs/tracy_profile_log_host.tracy
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
