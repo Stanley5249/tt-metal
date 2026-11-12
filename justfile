@@ -118,6 +118,16 @@ split-counter-test:
         .github/scripts/fork-split-counter-test.cpp -o "$out/split-counter-test"
     "$out/split-counter-test"
 
+# Build and run the host test of the ttsim tick-to-host-time map that places device zones in Tracy
+[group("verify")]
+[script]
+simulator-clock-test:
+    out=$(mktemp -d)
+    trap 'rm -rf "$out"' EXIT
+    pixi run clang++ -std=c++17 -Wall -Werror -I tt_metal/impl/profiler \
+        .github/scripts/fork-simulator-clock-test.cpp -o "$out/simulator-clock-test"
+    "$out/simulator-clock-test"
+
 # Verify formatting, pixi.lock, and the fork workflows without rewriting sources
 [group("verify")]
 ci:

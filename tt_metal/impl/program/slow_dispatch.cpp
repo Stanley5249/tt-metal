@@ -26,6 +26,7 @@
 #include "impl/dataflow_buffer/dataflow_buffer_impl.hpp"
 #include "impl/emulation/host_sanitizers.hpp"
 #include "impl/internal/service/service_core_manager_impl.hpp"
+#include "impl/profiler/tt_metal_profiler.hpp"
 #include "kernels/kernel.hpp"
 #include "llrt.hpp"
 #include "llrt/tt_cluster.hpp"
@@ -403,6 +404,9 @@ void LaunchProgramAsync(IDevice& device, Program& program, bool force_slow_dispa
     // don't get the GO mailbox (eg, storage cores) have all landed
     metal_ctx.get_cluster().l1_barrier(device_id);
 
+    // TT-SIM-PROFILER-SYNC: every tick of this program comes after this sample
+    tt::tt_metal::detail::SampleSimulatorClocks(metal_ctx);
+
     std::vector<std::vector<CoreCoord>> logical_cores_used_in_program = program.impl().logical_cores();
     const auto& hal = metal_ctx.hal();
     for (uint32_t programmable_core_type_index = 0; programmable_core_type_index < logical_cores_used_in_program.size();
@@ -428,6 +432,8 @@ void LaunchProgramAsync(IDevice& device, Program& program, bool force_slow_dispa
                 hal.get_dev_addr(programmable_core_type, HalL1MemAddrType::LAUNCH));
         }
     }
+    // TT-SIM-PROFILER-SYNC: launching a remote chip clocks the simulator, so close the launch before host idle time
+    tt::tt_metal::detail::SampleSimulatorClocks(metal_ctx);
 }
 
 }  // namespace tt::tt_metal::slow_dispatch

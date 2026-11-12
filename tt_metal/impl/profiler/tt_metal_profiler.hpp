@@ -37,5 +37,11 @@ void FreshProfilerDeviceLog(distributed::MeshDevice& mesh_device);
 
 DeviceProgramId DecodePerDeviceProgramID(uint32_t device_program_id);
 
+// TT-SIM-PROFILER-SYNC: record the simulator clock of every profiled device with the host time, so Tracy can place
+// their markers on host time. Dispatch calls it before a program can start and around waits for programs to finish.
+// Every device is sampled, because chips that share one simulator clock run while the host waits on any of them. A
+// no-op unless the device profiler runs on ttsim.
+void SampleSimulatorClocks(MetalContext& ctx);
+
 }  // namespace detail
 }  // namespace tt::tt_metal

@@ -58,6 +58,7 @@
 #include "llrt.hpp"
 #include <tt-logger/tt-logger.hpp>
 #include <tt-metalium/tt_metal_profiler.hpp>
+#include "impl/profiler/tt_metal_profiler.hpp"
 #include <program.hpp>
 #include "program/dispatch.hpp"
 #include "program/program_impl.hpp"
@@ -442,6 +443,8 @@ void DispatchCompiledProgramToDevice(IDevice* device, Program& program) {
 
     metal_ctx.get_cluster().dram_barrier(device_id);
     metal_ctx.get_cluster().l1_barrier(device_id);
+    // TT-SIM-PROFILER-SYNC: every tick of this program comes after this sample
+    detail::SampleSimulatorClocks(metal_ctx);
     const auto& hal = metal_ctx.hal();
     for (uint32_t programmable_core_type_index = 0; programmable_core_type_index < logical_cores_used_in_program.size();
          programmable_core_type_index++) {
@@ -464,6 +467,8 @@ void DispatchCompiledProgramToDevice(IDevice* device, Program& program) {
                 hal.get_dev_addr(programmable_core_type, HalL1MemAddrType::LAUNCH));
         }
     }
+    // TT-SIM-PROFILER-SYNC: launching a remote chip clocks the simulator, so close the launch before host idle time
+    detail::SampleSimulatorClocks(metal_ctx);
 }
 
 struct CapturedKernelConfig::Impl {

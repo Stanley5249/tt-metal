@@ -32,19 +32,24 @@ Start fork-owned work on a task branch from either track. Stable also serves as 
 
 The fork's source patches, all maintained here:
 
-| Patch                                             | Upstream files                                                                             |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| build tensors on the host under ttsim             | `ttnn/core/tensor/py_to_tt_tensor.cpp`                                                     |
-| read the wall clock without tearing               | `tt_metal/hw/inc/api/debug/kernel_profiler.hpp`, `tt_metal/hw/inc/hostdev/split_counter.h` |
-| skip zero-length profiler NoC writes              | `tt_metal/hw/inc/api/debug/kernel_profiler.hpp`                                            |
-| nominal AICLK for simulator ticks                 | `tt_metal/impl/profiler/profiler_analysis.*`, `profiler.cpp`                               |
-| wait for each ttsim core's profiler flush         | `tt_metal/impl/profiler/tt_metal_profiler.cpp`                                             |
-| `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                                                             |
-| ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/tt_transformers/tt/model_config.py`                                    |
-| ship the ttsim version pin                        | `setup.py`                                                                                 |
-| bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                                                      |
-| bundle the Tracy tools, viewer, and licenses      | `setup.py`                                                                                 |
-| build in pixi                                     | `.gitattributes`, `.gitignore`                                                             |
+| Patch                                             | Upstream files                                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| build tensors on the host under ttsim             | `ttnn/core/tensor/py_to_tt_tensor.cpp`                                                                                                |
+| read the wall clock without tearing               | `tt_metal/hw/inc/api/debug/kernel_profiler.hpp`, `tt_metal/hw/inc/hostdev/split_counter.h`                                            |
+| skip zero-length profiler NoC writes              | `tt_metal/hw/inc/api/debug/kernel_profiler.hpp`                                                                                       |
+| nominal AICLK for simulator ticks                 | `tt_metal/impl/profiler/profiler_analysis.*`, `profiler.cpp`                                                                          |
+| wait for each ttsim core's profiler flush         | `tt_metal/impl/profiler/tt_metal_profiler.cpp`                                                                                        |
+| place ttsim device zones on host time in Tracy    | `tt_metal/impl/profiler/`, `tt_metal/llrt/llrt.cpp`, `tt_metal/impl/program/slow_dispatch.cpp`, `tt_metal/impl/host_api/tt_metal.cpp` |
+| `TT_METAL_SFPI_ROOT` for the kernel JIT           | `tt_metal/jit_build/build.cpp`                                                                                                        |
+| ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/tt_transformers/tt/model_config.py`                                                                               |
+| ship the ttsim version pin                        | `setup.py`                                                                                                                            |
+| bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                                                                                                 |
+| bundle the Tracy tools, viewer, and licenses      | `setup.py`                                                                                                                            |
+| build in pixi                                     | `.gitattributes`, `.gitignore`                                                                                                        |
+
+ttsim's clock advances only when the host reads the device, so its ticks have no fixed rate in host time. The device profiler samples the simulator clock of every profiled device with Tracy's host clock around each program launch, around each wait for programs to finish, and after each profiler read, and places ttsim markers in Tracy by interpolating between those samples. Every device is sampled at each point, because chips that share one simulator clock run while the host works on any of them. Each sample costs about three register reads per device, so a workload spanning N devices pays for about N² reads per program, and reads of a remote chip clock the simulator too; this is small next to the polling of a ttsim run. Profiler CSV files, ops reports, and NoC traces keep raw ticks, and hardware keeps its device-host sync. Search for `TT-SIM-PROFILER-SYNC` to find every hook.
+
+The ttsim flush wait is a workaround: BRISC reports a program done before its profiler flush, and ttsim runs the flush only while the host reads the device, so the profiler read polls each core first. It runs only at profiler reads. A firmware zone's end and the flush zones that follow DONE are therefore placed by interpolation over whatever host work comes next, such as the next op's compile. Retire the wait if upstream ttsim or tt-metal flushes before reporting done.
 
 ## Syncing with upstream
 
