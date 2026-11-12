@@ -23,6 +23,7 @@
 #include <tt_metal.hpp>
 #include "tt_metal_profiler.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -39,6 +40,7 @@
 #include "profiler_analysis.hpp"
 #include "hal_types.hpp"
 #include "hostdev/profiler_common.h"
+#include "hostdev/split_counter.h"
 #include "llrt.hpp"
 #include <tt-logger/tt-logger.hpp>
 #include "llrt/metal_soc_descriptor.hpp"
@@ -2391,6 +2393,9 @@ void DeviceProfiler::clearStateForDeviceReinit() {
     this->active_dram_buffer_per_core_risc_map.clear();
     this->dram_read_cursor_per_core_risc_map.clear();
     this->device_markers_per_core_risc_map.clear();
+    // TT-SIM-PROFILER-SYNC: a new session may restart the simulator clock
+    std::scoped_lock lock(simulator_clock_samples_mutex);
+    this->simulator_clock_samples.clear();
 }
 
 void DeviceProfiler::resetActiveDramBufferIndices() {
@@ -2598,6 +2603,11 @@ void DeviceProfiler::readResults(
 
         resetControlBuffers(mesh_device, device, virtual_cores, force_slow_dispatch);
     }
+
+    // TT-SIM-PROFILER-SYNC: every marker read so far has an earlier tick than this sample
+    if (env_.get_rtoptions().get_simulator_enabled()) {
+        sampleSimulatorClock();
+    }
 #endif
 }
 
@@ -2670,10 +2680,39 @@ void DeviceProfiler::pushTracyDeviceResults(
         return;
     }
 
-    // If this device is root, it may have new sync info updated with syncDeviceHost
-    for (auto& [core, info] : device_core_sync_info) {
-        if (isSyncInfoNewer(device_sync_info, info)) {
-            setSyncInfo(info);
+    // TT-SIM-PROFILER-SYNC: on ttsim, markers go to Tracy as ns since Tracy's start, interpolated from the simulator
+    // clock samples, so one fixed context anchor serves every core and session. Hardware keeps its device-host sync.
+    const bool on_simulator = env_.get_rtoptions().get_simulator_enabled();
+    std::vector<SimulatorClockSample> simulator_samples;
+    uint64_t clamped_markers = 0;
+    auto simulator_tracy_ns = [&](uint64_t tick) {
+        bool clamped = false;
+        const double host_time = simulator_tick_to_host_time(simulator_samples, tick, clamped);
+        clamped_markers += clamped;
+        return static_cast<uint64_t>(std::llround((host_time - TracyGetBaseTime()) * TracyGetTimerMul()));
+    };
+    if (on_simulator) {
+        {
+            std::scoped_lock lock(simulator_clock_samples_mutex);
+            simulator_samples = simulator_clock_samples;
+        }
+        if (simulator_samples.size() < 2) {
+            log_warning(
+                tt::LogMetal,
+                "Device {} has {} simulator clock samples, too few to place its {} markers on host time, so they are "
+                "not pushed to Tracy; the profiler CSV files keep them",
+                device_id,
+                simulator_samples.size(),
+                device_markers_vec.size());
+            return;
+        }
+        setSyncInfo(SyncInfo(TracyGetBaseTime(), 0.0, 1.0));
+    } else {
+        // If this device is root, it may have new sync info updated with syncDeviceHost
+        for (auto& [core, info] : device_core_sync_info) {
+            if (isSyncInfoNewer(device_sync_info, info)) {
+                setSyncInfo(info);
+            }
         }
     }
 
@@ -2684,7 +2723,8 @@ void DeviceProfiler::pushTracyDeviceResults(
 
         const tracy::TTDeviceMarker& orig_marker = marker_ref.get();
         tracy::TTDeviceMarker marker_with_adjusted_timestamp;
-        const uint64_t adjusted_timestamp = orig_marker.timestamp * this->freq_scale + this->shift;
+        const uint64_t adjusted_timestamp = on_simulator ? simulator_tracy_ns(orig_marker.timestamp)
+                                                         : orig_marker.timestamp * this->freq_scale + this->shift;
         if (adjusted_timestamp != orig_marker.timestamp) {
             marker_with_adjusted_timestamp = tracy::TTDeviceMarker(
                 orig_marker.runtime_host_id,
@@ -2717,10 +2757,48 @@ void DeviceProfiler::pushTracyDeviceResults(
             TracyTTPushEndMarker(device_tracy_contexts[device_core], marker_to_push);
         }
     }
+
+    if (clamped_markers != 0) {
+        log_warning(
+            tt::LogMetal,
+            "{} markers of device {} lie outside its simulator clock samples, so Tracy shows them at the nearest "
+            "sample",
+            clamped_markers,
+            device_id);
+    }
 #endif
 }
 
 void DeviceProfiler::setSyncInfo(const SyncInfo& sync_info) { device_sync_info = sync_info; }
+
+void DeviceProfiler::sampleSimulatorClock() {
+#if defined(TRACY_ENABLE)
+    // TT-SIM-PROFILER-SYNC: ttsim serves 4-byte host reads of the wall clock registers on any Tensix tile, all with the
+    // chip's clock. The live high half (unlike the latched one at 0x1F8) lets read_split_counter avoid a torn read.
+    // Each read also advances the simulator by one tick.
+    constexpr uint64_t wall_clock_low_addr = 0xFFB121F0;
+    constexpr uint64_t wall_clock_high_addr = 0xFFB121F4;
+    const auto& cluster = env_.get_cluster();
+    const tt_cxy_pair core(
+        device_id, cluster.get_virtual_coordinate_from_logical_coordinates(device_id, {0, 0}, CoreType::WORKER));
+    auto read = [&](uint64_t addr) {
+        uint32_t value = 0;
+        cluster.read_reg(&value, core, addr);
+        return value;
+    };
+
+    // Holding the lock across the read keeps samples ordered by both host time and tick.
+    std::scoped_lock lock(simulator_clock_samples_mutex);
+    const int64_t host_before = TracyGetCpuTime();
+    uint32_t high = 0;
+    uint32_t low = 0;
+    kernel_profiler::read_split_counter(
+        [&] { return read(wall_clock_high_addr); }, [&] { return read(wall_clock_low_addr); }, high, low);
+    const int64_t host_after = TracyGetCpuTime();
+    simulator_clock_samples.push_back(
+        {host_before + (host_after - host_before) / 2, (static_cast<uint64_t>(high) << 32) | low});
+#endif
+}
 
 void DeviceProfiler::initializeMissingTracyContexts(bool blocking) {
 #if defined(TRACY_ENABLE)

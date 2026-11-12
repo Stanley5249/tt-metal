@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -23,6 +24,7 @@
 #include "mesh_device.hpp"
 #include "profiler_optional_metadata.hpp"
 #include "profiler_types.hpp"
+#include "simulator_clock.hpp"
 #include "tracy/TracyTTDevice.hpp"
 
 namespace tt::tt_metal {
@@ -111,6 +113,11 @@ private:
 
     // Per-core sync info used to make tracy context
     std::unordered_map<CoreCoord, SyncInfo> core_sync_info;
+
+    // TT-SIM-PROFILER-SYNC: simulator clock samples of the current device session, in the order taken. The mutex
+    // guards them, because dispatch threads sample while other threads may read or clear them.
+    std::mutex simulator_clock_samples_mutex;
+    std::vector<SimulatorClockSample> simulator_clock_samples;
 
     // Storage for all core's control buffers
     std::unordered_map<CoreCoord, std::vector<uint32_t>> core_control_buffers;
@@ -355,6 +362,9 @@ public:
 
     // Update sync info for this device
     void setSyncInfo(const SyncInfo& sync_info);
+
+    // TT-SIM-PROFILER-SYNC: read the simulator clock of this device and record it with the host time
+    void sampleSimulatorClock();
 
     // Destroy tracy contexts
     void destroyTracyContexts();

@@ -735,6 +735,22 @@ void ProfilerSync(ProfilerSyncState state) {
 #endif
 }
 
+void SampleSimulatorClocks(MetalContext& ctx) {
+#if defined(TRACY_ENABLE)
+    auto& env = MetalEnvAccessor(ctx.get_env()).impl();
+    if (!env.get_rtoptions().get_simulator_enabled() || !getDeviceProfilerState(env)) {
+        return;
+    }
+    const std::unique_ptr<ProfilerStateManager>& profiler_state_manager = ctx.profiler_state_manager();
+    if (!profiler_state_manager) {
+        return;
+    }
+    for (auto& [device_id, profiler] : profiler_state_manager->device_profiler_map) {
+        profiler.sampleSimulatorClock();
+    }
+#endif
+}
+
 void ClearProfilerControlBuffer(IDevice* device) {
 #if defined(TRACY_ENABLE)
     std::vector<uint32_t> control_buffer(kernel_profiler::PROFILER_L1_CONTROL_VECTOR_SIZE, 0);
@@ -929,7 +945,7 @@ static void ReadDeviceProfilerResultsImpl(
     if (env.get_rtoptions().get_simulator_enabled()) {
         // BRISC reports a program done before its profiler flush, and ttsim advances only when the host
         // reads the device. Poll each core that started profiling until its flush lands; every read is
-        // one more simulation tick, the same ticks on every run.
+        // one more simulation tick, the same ticks on every run. A fork workaround; FORK.md says when to retire it.
         constexpr int maxSimulatorReads = 1000;
         const auto& hal = env.get_hal();
         for (const CoreCoord& core : virtual_cores) {

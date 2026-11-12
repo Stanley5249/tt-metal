@@ -26,6 +26,7 @@
 #include "impl/context/metal_env_impl.hpp"
 #include <impl/debug/watcher_server.hpp>
 #include <internal/l1_ecc_halt.hpp>
+#include "impl/profiler/tt_metal_profiler.hpp"
 #include <tt-metalium/experimental/fabric/control_plane.hpp>
 #include "hal_types.hpp"
 #include "internal/tt-1xx/blackhole/eth_fw_api.h"
@@ -637,7 +638,10 @@ void wait_for_idle(
             not_done_cores.insert(physical_core);
         }
     }
+    // TT-SIM-PROFILER-SYNC: the program's ticks run while this wait polls
+    tt::tt_metal::detail::SampleSimulatorClocks(context);
     wait_until_cores_done(context, device_id, tt_metal::dev_msgs::RUN_MSG_GO, not_done_cores);
+    tt::tt_metal::detail::SampleSimulatorClocks(context);
 }
 
 void send_msg_to_eth_mailbox(

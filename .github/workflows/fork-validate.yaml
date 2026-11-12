@@ -111,6 +111,7 @@ jobs:
       - id: build
         run: just build
       - run: just split-counter-test
+      - run: just simulator-clock-test
       - if: always() && steps.build.outcome != 'skipped'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
