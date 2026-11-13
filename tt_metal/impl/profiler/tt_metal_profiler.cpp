@@ -573,15 +573,21 @@ void syncAllDevices(MetalContext& ctx, ChipId host_connected_device) {
             double freqScale = (senderReceiverProductSum * accumulateSampleCount - senderSum * receiverSum) /
                                (receiverSquareSum * accumulateSampleCount - receiverSum * receiverSum);
 
-            uint64_t shift = ((double)(senderSum - (freqScale * (double)receiverSum)) / accumulateSampleCount) +
-                             (senderBase - freqScale * receiverBase);
+            // The shift can be negative, so convert from double to a signed integer.
+            const int64_t shift = static_cast<int64_t>(
+                ((double)(senderSum - (freqScale * (double)receiverSum)) / accumulateSampleCount) +
+                (senderBase - freqScale * receiverBase));
             deviceDeviceSyncInfo.try_emplace(sender.first);
             deviceDeviceSyncInfo.at(sender.first)
                 .insert_or_assign(receiver.first, (std::pair<double, int64_t>){freqScale, shift});
 
             deviceDeviceSyncInfo.try_emplace(receiver.first);
             deviceDeviceSyncInfo.at(receiver.first)
-                .insert_or_assign(sender.first, (std::pair<double, int64_t>){1.0 / freqScale, -1 * shift});
+                .insert_or_assign(
+                    sender.first,
+                    // Inverse of sender = freqScale * receiver + shift.
+                    (std::pair<double, int64_t>){1.0 / freqScale,
+                                                 static_cast<int64_t>(-static_cast<double>(shift) / freqScale)});
         }
     }
 
