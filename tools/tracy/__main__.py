@@ -392,6 +392,7 @@ def main():
             # its own group mask) and merges the per-pass device logs. Single pass runs once as before.
             pass_bitfields = getattr(options, "perf_counter_pass_bitfields", None)
             proc_holder = {"p": None}
+            workload_rc = 0
 
             def signal_handler(sig, frame):
                 if proc_holder["p"] is not None:
@@ -404,6 +405,7 @@ def main():
             signal.signal(signal.SIGTERM, signal_handler)
 
             def run_workload(env):
+                nonlocal workload_rc
                 proc = subprocess.Popen([testCommand], shell=True, env=env, preexec_fn=os.setsid)
                 proc_holder["p"] = proc
                 logger.info("Test process started")
@@ -418,9 +420,9 @@ def main():
                     except ProcessLookupError:
                         pass
                     raise
-                if options.check_exit_code and proc.returncode != 0:
-                    logger.error(f"{testCommand} exited with a non-zero return code")
-                    sys.exit(4)
+                if proc.returncode != 0:
+                    workload_rc = proc.returncode if proc.returncode > 0 else 128 - proc.returncode
+                    logger.error(f"{testCommand} exited with code {workload_rc}")
 
             if pass_bitfields and len(pass_bitfields) > 1:
                 if not run_perf_counter_passes(run_workload, envVars, pass_bitfields, outputFolder):
@@ -462,7 +464,7 @@ def main():
                 # Copy the generated .tracy file to the server's traces folder with a unique name
                 import datetime
 
-                tracy_src = PROFILER_LOGS_DIR / TRACY_FILE_NAME
+                tracy_src = generate_logs_folder(outputFolder) / TRACY_FILE_NAME
                 traces_dir = PROFILER_WASM_TRACES_DIR
                 # Use timestamp, optional name_append, and a short form of the tested command for uniqueness
                 timestamp = datetime.datetime.now().strftime("_%Y_%m_%d_%H_%M_%S")
@@ -516,6 +518,9 @@ def main():
                     "Run with -v to see capture output."
                 )
                 sys.exit(1)
+
+            if workload_rc:
+                sys.exit(workload_rc)
 
     else:
         parser.print_usage()
