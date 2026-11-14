@@ -1240,8 +1240,7 @@ void DiscardMeshDeviceProfilerResults(distributed::MeshDevice& mesh_device) {
     for (IDevice* device : mesh_device.get_devices()) {
         auto& profiler = ctx.profiler_state_manager()->device_profiler_map.at(device->id());
         const auto cores = detail::getVirtualCoresForProfiling(ctx, device, ProfilerReadState::NORMAL);
-        profiler.readControlBuffers(&mesh_device, device, cores, false);
-        profiler.resetControlBuffers(&mesh_device, device, cores, false);
+        profiler.discardResults(&mesh_device, device, cores);
     }
 #endif
 }

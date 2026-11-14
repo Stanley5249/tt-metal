@@ -271,3 +271,11 @@ def test_enrich_ops_from_perf_csv_still_asserts_on_a_device_missing_from_the_rep
 
     with pytest.raises(AssertionError, match="no rows at all"):  # allow-pytest.raises: runs with --noconftest
         process_ops_logs._enrich_ops_from_perf_csv(host_ops, device_rows, None)
+
+
+def test_discarded_non_trace_op_keeps_host_metadata():
+    host_ops = {0: [{"global_call_count": 1}, {"global_call_count": 2}]}
+    device_rows = {0: {(2, None, None): {"CORE COUNT": 1}}}
+    enriched = process_ops_logs._enrich_ops_from_perf_csv(host_ops, device_rows, None)
+    assert enriched[0][0] == {"global_call_count": 1}
+    assert "_device_perf_row" in enriched[0][1]
