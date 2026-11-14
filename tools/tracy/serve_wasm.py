@@ -14,6 +14,7 @@ import asyncio
 import websockets
 import json
 import signal
+from urllib.request import urlopen
 
 from loguru import logger
 
@@ -317,6 +318,16 @@ def launch_server_subprocess(directory=None, port=None, daemon=True, enabled=Non
     # Reuse a server already on this port: its watcher pushes 'reload' on embed.tracy changes,
     # so a restart would only drop WebSocket clients. Otherwise reap a wedged leftover on this port.
     if is_server_running(http_port):
+        expected_root = str(Path(directory or PROFILER_WASM_DIR).resolve())
+        try:
+            with urlopen(f"http://127.0.0.1:{http_port}/", timeout=2) as response:
+                actual_root = response.headers.get("X-Tracy-Wasm-Root")
+        except OSError as exc:
+            raise RuntimeError(f"Cannot identify server on port {http_port}") from exc
+        if actual_root != expected_root:
+            raise RuntimeError(
+                f"Port {http_port} serves {actual_root!r}, expected {expected_root!r}; choose another port"
+            )
         logger.info(
             f"Tracy WASM server already serving port {http_port}; reusing it (live-reload refreshes the browser)."
         )
@@ -437,6 +448,7 @@ class CORSRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def end_headers(self):
+        self.send_header("X-Tracy-Wasm-Root", str(Path(self.directory).resolve()))
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
