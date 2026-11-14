@@ -470,6 +470,10 @@ RuntimeArgsData& GetCommonRuntimeArgs(const Program& program, KernelHandle kerne
  * | metadata      | Metadata to include in the profiler results           | ProfilerOptionalMetadata |                           | No       |
  * */
 // clang-format on
+// Discard pending device markers without parsing, output, or freeing trace-referenced buffers.
+// Requires exclusive profiler ownership and no active trace capture.
+void DiscardMeshDeviceProfilerResults(distributed::MeshDevice& mesh_device);
+
 void ReadMeshDeviceProfilerResults(
     distributed::MeshDevice& mesh_device,
     ProfilerReadState state = ProfilerReadState::NORMAL,
