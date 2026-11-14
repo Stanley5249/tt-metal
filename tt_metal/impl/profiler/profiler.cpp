@@ -2798,39 +2798,19 @@ void DeviceProfiler::sampleSimulatorClock() {
     if (!env_.get_rtoptions().get_simulator_enabled() && !env_.get_rtoptions().get_profiler_sync_enabled()) {
         return;
     }
-    if (!env_.get_rtoptions().get_simulator_enabled() &&
-        env_.get_cluster().get_cluster_desc()->is_chip_remote(device_id)) {
-        // The Wormhole Ethernet control-read path returns a different clock domain from worker markers.
-        // Keep the existing per-chip fit rather than emitting falsely anchored remote markers.
+    const bool on_simulator = env_.get_rtoptions().get_simulator_enabled();
+    const bool remote_hardware = !on_simulator && env_.get_cluster().get_cluster_desc()->is_chip_remote(device_id);
+    if (remote_hardware && !remote_clock_offset) {
+        // Without an offset, a remote read would place markers on the Ethernet counter; keep the open fit.
         return;
     }
-    constexpr uint64_t wall_clock_low_addr = 0xFFB121F0;
-    constexpr uint64_t wall_clock_high_addr = 0xFFB121F4;
-    const auto& cluster = env_.get_cluster();
-    const tt_cxy_pair core(
-        device_id, cluster.get_virtual_coordinate_from_logical_coordinates(device_id, {0, 0}, CoreType::WORKER));
-    auto read = [&](uint64_t addr) {
-        uint32_t value = 0;
-        cluster.read_reg(&value, core, addr);
-        return value;
-    };
 
     // Holding the lock across the read keeps samples ordered by both host time and tick.
     std::scoped_lock lock(simulator_clock_samples_mutex);
-    const bool on_simulator = env_.get_rtoptions().get_simulator_enabled();
-    int64_t best_latency = INT64_MAX;
-    SimulatorClockSample best{};
-    for (int attempt = 0; attempt < (on_simulator ? 1 : 8); ++attempt) {
-        const int64_t host_before = TracyGetCpuTime();
-        uint32_t high = 0;
-        uint32_t low = 0;
-        kernel_profiler::read_split_counter(
-            [&] { return read(wall_clock_high_addr); }, [&] { return read(wall_clock_low_addr); }, high, low);
-        const int64_t host_after = TracyGetCpuTime();
-        if (host_after - host_before < best_latency) {
-            best_latency = host_after - host_before;
-            best = {host_before + best_latency / 2, (static_cast<uint64_t>(high) << 32) | low};
-        }
+    int64_t best_latency = 0;
+    SimulatorClockSample best = readWallClock(on_simulator ? 1 : 8, best_latency);
+    if (remote_hardware) {
+        best.device_time = static_cast<uint64_t>(static_cast<int64_t>(best.device_time) - *remote_clock_offset);
     }
     if (!on_simulator && simulator_clock_samples.empty()) {
         for (const auto& [core, info] : device_core_sync_info) {
@@ -2849,6 +2829,64 @@ void DeviceProfiler::sampleSimulatorClock() {
                  device_id, best.host_time, best.device_time, best_latency * TracyGetTimerMul());
     }
 
+#endif
+}
+
+SimulatorClockSample DeviceProfiler::readWallClock(int attempts, int64_t& latency) {
+    SimulatorClockSample best{};
+#if defined(TRACY_ENABLE)
+    constexpr uint64_t wall_clock_low_addr = 0xFFB121F0;
+    constexpr uint64_t wall_clock_high_addr = 0xFFB121F4;
+    const auto& cluster = env_.get_cluster();
+    const tt_cxy_pair core(
+        device_id, cluster.get_virtual_coordinate_from_logical_coordinates(device_id, {0, 0}, CoreType::WORKER));
+    auto read = [&](uint64_t addr) {
+        uint32_t value = 0;
+        cluster.read_reg(&value, core, addr);
+        return value;
+    };
+    latency = INT64_MAX;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
+        const int64_t host_before = TracyGetCpuTime();
+        uint32_t high = 0;
+        uint32_t low = 0;
+        kernel_profiler::read_split_counter(
+            [&] { return read(wall_clock_high_addr); }, [&] { return read(wall_clock_low_addr); }, high, low);
+        const int64_t host_after = TracyGetCpuTime();
+        if (host_after - host_before < latency) {
+            latency = host_after - host_before;
+            best = {host_before + latency / 2, (static_cast<uint64_t>(high) << 32) | low};
+        }
+    }
+#endif
+    return best;
+}
+
+void DeviceProfiler::calibrateRemoteClock() {
+#if defined(TRACY_ENABLE)
+    remote_clock_offset.reset();
+    if (env_.get_rtoptions().get_simulator_enabled() || !env_.get_rtoptions().get_profiler_sync_enabled() ||
+        !env_.get_cluster().get_cluster_desc()->is_chip_remote(device_id)) {
+        return;
+    }
+    for (const auto& [core, fit] : device_core_sync_info) {
+        if (fit.frequency <= 0) {
+            continue;
+        }
+        int64_t latency = 0;
+        const SimulatorClockSample ethernet = readWallClock(8, latency);
+        const double worker = static_cast<double>(fit.device_time) +
+                              (static_cast<double>(ethernet.host_time) - static_cast<double>(fit.cpu_time)) *
+                                  fit.frequency * TracyGetTimerMul();
+        remote_clock_offset = static_cast<int64_t>(ethernet.device_time) - std::llround(worker);
+        log_info(
+            tt::LogMetal,
+            "Remote clock offset device {}: Ethernet minus worker {} cycles, read latency {} ns",
+            device_id,
+            *remote_clock_offset,
+            latency * TracyGetTimerMul());
+        return;
+    }
 #endif
 }
 
