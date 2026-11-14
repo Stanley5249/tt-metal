@@ -2709,12 +2709,12 @@ void DeviceProfiler::pushTracyDeviceResults(
         clamped_markers += clamped;
         return static_cast<uint64_t>(std::llround((host_time - TracyGetBaseTime()) * TracyGetTimerMul()));
     };
-    const bool use_samples = on_simulator || !simulator_clock_samples.empty();
+    {
+        std::scoped_lock lock(simulator_clock_samples_mutex);
+        simulator_samples = simulator_clock_samples;
+    }
+    const bool use_samples = on_simulator || !simulator_samples.empty();
     if (use_samples) {
-        {
-            std::scoped_lock lock(simulator_clock_samples_mutex);
-            simulator_samples = simulator_clock_samples;
-        }
         if (on_simulator && simulator_samples.size() < 2) {
             log_warning(
                 tt::LogMetal,
@@ -2799,6 +2799,13 @@ void DeviceProfiler::sampleSimulatorClock() {
         return;
     }
     const bool on_simulator = env_.get_rtoptions().get_simulator_enabled();
+    if (!on_simulator && std::none_of(device_core_sync_info.begin(), device_core_sync_info.end(), [](const auto& entry) {
+            return entry.second.frequency > 0;
+        })) {
+        // Hardware anchors extend the chip's open sync fit; without one, such as in accumulate mode, keep the
+        // existing placement.
+        return;
+    }
     const bool remote_hardware = !on_simulator && env_.get_cluster().get_cluster_desc()->is_chip_remote(device_id);
     if (remote_hardware && !remote_clock_offset) {
         // Without an offset, a remote read would place markers on the Ethernet counter; keep the open fit.

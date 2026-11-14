@@ -1284,9 +1284,14 @@ void ReadMeshDeviceProfilerResults(
         }
     }
 
-    for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
-        TT_FATAL(!mesh_device.mesh_command_queue(cq_id).trace_id().has_value(),
-                 "Profiler read is not supported during trace capture");
+    // A mid-run read must not interrupt a trace capture. The final read on mesh close still runs, so a workload
+    // that fails inside a capture keeps the markers it already wrote.
+    if (state != ProfilerReadState::LAST_FD_READ) {
+        for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
+            TT_FATAL(
+                !mesh_device.mesh_command_queue(cq_id).trace_id().has_value(),
+                "Profiler read is not supported during trace capture");
+        }
     }
     for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
         mesh_device.mesh_command_queue(cq_id).finish();
