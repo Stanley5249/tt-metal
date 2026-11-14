@@ -712,6 +712,10 @@ void ProfilerSync(MetalContext& ctx, ProfilerSyncState state) {
             }
             syncDeviceHost(ctx, mesh_device, device, ProfilerStateManager::SYNC_CORE, write_header);
             write_header = false;
+            if (!closing) {
+                // The close fit regresses every sample since open, so only the open fit gives the offset.
+                profiler.calibrateRemoteClock();
+            }
             profiler.freq_scale = 1.0;
             profiler.shift = 0;
         }

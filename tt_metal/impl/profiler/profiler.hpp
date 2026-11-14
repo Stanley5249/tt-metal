@@ -119,6 +119,14 @@ private:
     std::mutex simulator_clock_samples_mutex;
     std::vector<SimulatorClockSample> simulator_clock_samples;
 
+    // A remote hardware chip's host register reads return its Ethernet counter, not the worker counter that its
+    // markers use. Both run on one clock while the mesh is open, so this offset, Ethernet minus worker, is taken
+    // once right after the open sync and subtracted from every later read.
+    std::optional<int64_t> remote_clock_offset;
+
+    // Best of a few tear-free host reads of this device's wall clock, with the read's host time and latency
+    SimulatorClockSample readWallClock(int attempts, int64_t& latency);
+
     // Storage for all core's control buffers
     std::unordered_map<CoreCoord, std::vector<uint32_t>> core_control_buffers;
 
@@ -368,6 +376,9 @@ public:
 
     // TT-SIM-PROFILER-SYNC: read the simulator clock of this device and record it with the host time
     void sampleSimulatorClock();
+
+    // Measure remote_clock_offset against the worker fit that syncDeviceHost just took; no-op on other chips
+    void calibrateRemoteClock();
 
     // Destroy tracy contexts
     void destroyTracyContexts();
