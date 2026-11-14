@@ -4,7 +4,7 @@ platforms:
   subdir: linux-64
   virtual-packages:
   - __glibc=2.34
-  - __unix=0=0
+  - __unix=0
   - __linux=4.18
   - __archspec=0=x86_64
 environments:
@@ -106,7 +106,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/libstdcxx-devel_linux-64-13.4.0-h6963c3b_120.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.34-h087de78_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.2/ttsim-1.16.0%2Bsteps.2-0.conda
+      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.3/ttsim-1.16.0%2Bsteps.3-0.conda
       - pypi: ./
       - pypi: https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/4f/83454fafd628e1e7e1726d74e44fb2332be5969d04c6182ca1fecb6c580e/filelock-4.0.9-py3-none-any.whl
@@ -186,7 +186,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.7.22-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.2/ttsim-1.16.0%2Bsteps.2-0.conda
+      - conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.3/ttsim-1.16.0%2Bsteps.3-0.conda
       - pypi: https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/4f/83454fafd628e1e7e1726d74e44fb2332be5969d04c6182ca1fecb6c580e/filelock-4.0.9-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
@@ -1303,15 +1303,15 @@ packages:
   run_exports: {}
   size: 118849
   timestamp: 1784250406640
-- conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.2/ttsim-1.16.0%2Bsteps.2-0.conda
+- conda: https://github.com/Stanley5249/ttsim/releases/download/v1.16.0-steps.3/ttsim-1.16.0%2Bsteps.3-0.conda
   name: ttsim
-  version: 1.16.0+steps.2
+  version: 1.16.0+steps.3
   build: '0'
   subdir: linux-64
-  sha256: 69f238c76724820f8c659e352dd5f270e377b73d8f70e53b37e3cd00137a965e
+  sha256: 0cf2ee0f969fbac8ea159f81e2eee07080afecdb1588d188e4e99658318d83eb
   channel: null
   license: Apache-2.0
-  timestamp: 1794537571178
+  timestamp: 1794628917105
 - pypi: ./
   name: ttnn
   requires_dist:
