@@ -86,7 +86,7 @@ class FakeGitHub:
         elif args[:2] == ["release", "create"]:
             tag = args[2]
             assert "--verify-tag" in args and tag in self.tags, "the tag must exist before the draft"
-            files = [a for a in args if a.endswith((".whl", ".tar.gz"))]
+            files = [a for a in args if a.endswith(".whl")]
             notes = Path(args[args.index("--notes-file") + 1]).read_text()
             entry = published(tag, draft=True, target=args[args.index("--target") + 1]) | {"id": len(self.releases) + 1, "prerelease": "--prerelease" in args}
             self.releases.append(entry | {"body": notes, "assets": self.assets(files)})
@@ -106,7 +106,6 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.dist = Path(temp.name)
         (self.dist / "ttnn-1.0.0+conda.1-cp312-cp312-linux_x86_64.whl").write_bytes(b"wheel")
-        (self.dist / release.TRACY).write_bytes(b"tracy")
         self.notes = self.dist / "notes.md"
         self.notes.write_text("generated notes\n")
         self.manifest = release.manifest(self.dist, A)
@@ -128,7 +127,7 @@ class ReleaseTests(unittest.TestCase):
         release.check(self.dist, A)
         with self.assertRaisesRegex(release.Fail, "built from"):
             release.check(self.dist, B)
-        (self.dist / release.TRACY).write_bytes(b"changed")
+        (self.dist / "ttnn-1.0.0+conda.1-cp312-cp312-linux_x86_64.whl").write_bytes(b"changed")
         with self.assertRaisesRegex(release.Fail, "differ"):
             release.check(self.dist, A)
         (self.dist / "ttnn-other.whl").write_bytes(b"x")

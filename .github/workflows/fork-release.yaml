@@ -244,7 +244,7 @@ jobs:
             {
               echo "Published $TAG at $REF with:"
               echo '```text'
-              (cd "$RUNNER_TEMP/dist" && sha256sum ttnn-*.whl tracy-tools-linux_x86_64.tar.gz)
+              (cd "$RUNNER_TEMP/dist" && sha256sum ttnn-*.whl)
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           else

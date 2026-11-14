@@ -14,7 +14,6 @@ build_jobs := env("TT_BUILD_JOBS", "10")
 cpm_cache := home_directory() / ".cache/cpm"
 dist_dir := justfile_directory() / "dist"
 wheel_work := justfile_directory() / "build_wheel"
-tracy_asset := "tracy-tools-linux_x86_64.tar.gz"
 
 # Fail instead of re-solving when pixi.lock is out of date; run `pixi lock` after a manifest change.
 export PIXI_LOCKED := "true"
@@ -88,19 +87,6 @@ wheel label="":
         DIST_EXTRA_CONFIG="{{ wheel_work }}/setup.cfg" \
         pixi run uv build --wheel --python "$(pixi run which python)" --out-dir "{{ dist_dir }}" .
     ls -l "{{ dist_dir }}"
-
-# Package the Tracy tools and WASM viewer from the current build in dist/
-[group("release")]
-[script]
-tracy-tools:
-    mkdir -p "{{ dist_dir }}"
-    # Paths stay as in the source tree, where tt-metal's tracy module looks
-    # for them under TT_METAL_HOME.
-    wasm=build/profiler/build_wasm
-    tar -czf "{{ dist_dir }}/{{ tracy_asset }}" \
-        build/tools/profiler/bin \
-        "$wasm/index.html" "$wasm/favicon.svg" "$wasm/tracy-profiler.js" "$wasm/tracy-profiler.wasm"
-    ls -l "{{ dist_dir }}/{{ tracy_asset }}"
 
 # Format pixi.toml and the justfile
 [group("verify")]
