@@ -428,6 +428,10 @@ def main():
                         pass
                     raise
                 if proc.returncode != 0:
+                    if options.check_exit_code:
+                        logger.error(f"{testCommand} exited with a non-zero return code")
+                        sys.exit(4)
+                    # Without --check-exit-code, post-process what the workload left, then exit with its code.
                     workload_rc = proc.returncode if proc.returncode > 0 else 128 - proc.returncode
                     logger.error(f"{testCommand} exited with code {workload_rc}")
 
@@ -525,9 +529,10 @@ def main():
                     "Run with -v to see capture output."
                 )
                 sys.exit(1)
-
-            if workload_rc:
-                sys.exit(workload_rc)
+            finally:
+                # A failed workload's exit code wins over a later capture or report failure.
+                if workload_rc:
+                    sys.exit(workload_rc)
 
     else:
         parser.print_usage()
