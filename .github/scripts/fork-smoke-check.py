@@ -9,6 +9,8 @@ buffer mid-kernel, which repeats its FW and KERNEL start markers for the host
 to drop. With --tracy, the capture must place device zones on host time: no
 KERNEL zone may overlap the host pause that fork-smoke.py marks, and some must
 end before it and start after it.
+With --log, tracy's console output must hold no warning that the profiler
+dropped markers or gave up waiting for a flush.
 """
 
 import argparse
@@ -25,6 +27,7 @@ parser.add_argument("logs", type=Path, help="tracy's .logs folder")
 parser.add_argument("--noc", action="store_true", help="check the NoC trace too")
 parser.add_argument("--expect-quick-push", action="store_true", help="require a mid-kernel flush")
 parser.add_argument("--tracy", type=Path, help="check device zone placement in this .tracy capture")
+parser.add_argument("--log", type=Path, help="tracy's console output, checked for profiler warnings")
 args = parser.parse_args()
 
 errors = []
@@ -116,6 +119,11 @@ if args.tracy:
             errors.append("no KERNEL zone starts after the host pause")
         if any(start < 0 for start, _ in kernels_on_host):
             errors.append("KERNEL zones start before the capture")
+
+if args.log:
+    for line in args.log.read_text(errors="replace").splitlines():
+        if "markers were dropped" in line or "Device profiling never finished" in line:
+            errors.append(f"profiler warning: {line.strip()}")
 
 for error in errors:
     print(f"error: {error}", file=sys.stderr)
