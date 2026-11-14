@@ -163,6 +163,19 @@ jobs:
           git fetch -q --no-tags "$RUNNER_TEMP/update/update.bundle" "refs/heads/$CANDIDATE"
           test "$(git rev-parse FETCH_HEAD)" = "$SHA"
           git merge-base --is-ancestor "origin/$TRACK" "$SHA"
+          # A new upstream workflow cannot be disabled before GitHub registers
+          # it. Stop rather than expose an unregistered workflow to a push.
+          GH_TOKEN=${{ github.token }} gh workflow list --all -L 500 --json path,state \
+            -q '.[] | select(.state != "active") | .path' > "$RUNNER_TEMP/disabled-workflows"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/fork-*) continue ;;
+            esac
+            if ! grep -Fxq "$path" "$RUNNER_TEMP/disabled-workflows"; then
+              echo "::error::Register and disable inherited workflow before syncing: $path"
+              exit 1
+            fi
+          done < <(git ls-tree -r --name-only "$SHA" .github/workflows | grep -E '\.ya?ml$')
           gh auth setup-git
           # One atomic push preserves the candidate if the track moved or either
           # update is not a fast-forward. No tag or release is created.
