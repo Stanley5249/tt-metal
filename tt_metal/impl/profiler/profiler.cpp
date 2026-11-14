@@ -2710,7 +2710,7 @@ void DeviceProfiler::pushTracyDeviceResults(
         }
         setSyncInfo(SyncInfo(TracyGetBaseTime(), 0.0, 1.0));
     } else {
-        // If this device is root, it may have new sync info updated with syncDeviceHost
+        // Each device has its own worker-to-host fit from syncDeviceHost.
         for (auto& [core, info] : device_core_sync_info) {
             if (isSyncInfoNewer(device_sync_info, info)) {
                 setSyncInfo(info);

@@ -693,43 +693,28 @@ void ProfilerSync(MetalContext& ctx, ProfilerSyncState state) {
         }
     }
 
-    // Run host-device sync on all root devices
-    // only run device-device sync if number of connected devices to root is bigger than 1 (i.e there is actually
-    // something to sync with)
-
-    if (state == ProfilerSyncState::INIT) {
-        for (auto [root_device_id, num_devices] : num_connected_devices) {
-            auto* root_device = ctx.device_manager()->get_active_device(root_device_id);
-            distributed::MeshDevice* mesh_device = nullptr;
-            try {
-                mesh_device = root_device->get_mesh_device().get();
-            } catch (const std::exception&) {
-                log_info(
-                    tt::LogMetal, "Device {} is not managed by MeshDevice. Skipping host-device sync.", root_device_id);
-                continue;
-            }
-            syncDeviceHost(ctx, mesh_device, root_device, ProfilerStateManager::SYNC_CORE, true);
-            if (num_devices > 1) {
-                syncAllDevices(ctx, root_device->id());
-            }
+    // Worker and Ethernet counters need not share an epoch, even on the same
+    // chip. Anchor every worker clock directly to the host rather than applying
+    // an Ethernet-to-Ethernet fit to worker timestamps.
+    const bool closing = state == ProfilerSyncState::CLOSE_DEVICE;
+    if (state == ProfilerSyncState::INIT || (closing && profiler_state_manager->do_sync_on_close)) {
+        if (closing) {
+            profiler_state_manager->do_sync_on_close = false;
         }
-    }
-    if (state == ProfilerSyncState::CLOSE_DEVICE and profiler_state_manager->do_sync_on_close) {
-        profiler_state_manager->do_sync_on_close = false;
-        for (auto [root_device_id, num_devices] : num_connected_devices) {
-            auto* root_device = ctx.device_manager()->get_active_device(root_device_id);
+        bool write_header = !closing;
+        for (auto& [device_id, profiler] : profiler_state_manager->device_profiler_map) {
+            auto* device = ctx.device_manager()->get_active_device(device_id);
             distributed::MeshDevice* mesh_device = nullptr;
             try {
-                mesh_device = root_device->get_mesh_device().get();
+                mesh_device = device->get_mesh_device().get();
             } catch (const std::exception&) {
-                log_info(
-                    tt::LogMetal, "Device {} is not managed by MeshDevice. Skipping host-device sync.", root_device_id);
+                log_info(tt::LogMetal, "Device {} is not managed by MeshDevice. Skipping host-device sync.", device_id);
                 continue;
             }
-            syncDeviceHost(ctx, mesh_device, root_device, ProfilerStateManager::SYNC_CORE, false);
-            if (num_devices > 1) {
-                syncAllDevices(ctx, root_device->id());
-            }
+            syncDeviceHost(ctx, mesh_device, device, ProfilerStateManager::SYNC_CORE, write_header);
+            write_header = false;
+            profiler.freq_scale = 1.0;
+            profiler.shift = 0;
         }
     }
 #endif
