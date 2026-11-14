@@ -122,7 +122,6 @@ jobs:
             ~/.cache/cpm
           key: build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
       - run: just wheel --label "$LABEL"
-      - run: just tracy-tools
       # The manifest ties the artifacts to this commit; smoke tests and the
       # release check every file against it.
       - env:
@@ -144,7 +143,6 @@ jobs:
           name: dist
           path: |
             dist/ttnn-*.whl
-            dist/tracy-tools-linux_x86_64.tar.gz
             dist/fork-manifest.json
           if-no-files-found: error
           retention-days: 7

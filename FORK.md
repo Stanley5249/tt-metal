@@ -1,6 +1,6 @@
 # Stanley5249/tt-metal
 
-This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship a ttnn wheel that bundles the Tracy tools and viewer, and, until tt-vllm-tracer moves off it, the same tools as a tarball. This file stays on the fork's two tracks.
+This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship one ttnn wheel that bundles the Tracy tools and viewer. This file stays on the fork's two tracks.
 
 ## Branches
 
@@ -88,7 +88,7 @@ fork-notify    published/manual  notify-tracer
 
 `fork-checks` runs `just ci`, including sync, release, and installed-model checks. Track and candidate pushes disable inherited workflows even when checks fail. Fork workflows use no local composite actions; upstream actions stay in the tree for merge compatibility but are not used by fork workflows.
 
-`fork-validate` checks upstream SFPI/ttsim pins, builds the wheel and Tracy tools, and tests the installed wheel on Wormhole and Blackhole simulators. Regression tests cover models packaging, Tracy capture/viewer, device profiling, NoC tracing, and simulator timestamps. `fork-manifest.json` ties the commit to artifact SHA-256 digests. Smoke tests and publication verify the same artifacts. Build jobs use read-only tokens and save ccache on failure.
+`fork-validate` checks upstream SFPI/ttsim pins, builds the wheel and tests the installed wheel on Wormhole and Blackhole simulators. Regression tests cover models packaging, Tracy capture/viewer, device profiling, NoC tracing, and simulator timestamps. `fork-manifest.json` ties the commit to the wheel's SHA-256 digest. Smoke tests and publication verify the same wheel. Build jobs use read-only tokens and save ccache on failure.
 
 `fork-select-tag.sh` validates upstream tags. `fork-version.sh` checks the upstream base recorded by `pixi.toml` and derives the wheel version. `fork-release.py` allocates `<upstream-tag>-conda.N` after existing tags and drafts, resumes a release at the same commit, and rejects unfinished releases at another commit. Manual releases queue per track. Stable releases take GitHub's latest label only when newest; nightly releases are prereleases. Publication checks tag identity, asset names, sizes, and manifest digests before and after publishing. A published release never changes.
 
@@ -106,7 +106,7 @@ Sizes are from one local build. A cold `just build` takes about 32 min locally a
 | `~/.cache/cpm/`                          | `just build`                     | 4.0 GB |
 | `~/.cache/ccache/`                       | `just build`                     | 0.6 GB |
 | `generated/`, `~/.cache/tt-metal-cache/` | `just test`, `just trace`        | 2 GB   |
-| `dist/`, `build_wheel/`                  | `just wheel`, `just tracy-tools` | 0.4 GB |
+| `dist/`, `build_wheel/`                  | `just wheel`                     | 0.4 GB |
 
 `just link-ttsim`, which `just test` and `just trace` run first, writes one path outside the table's sizes: the symlink `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library, and `.github/actions/setup-ttsim` belongs to upstream's disabled workflows.
 
@@ -147,7 +147,7 @@ For example, after stopping captures and saving any needed profiling results, th
 rm -rf -- generated build/profiler/build_wasm/traces build/profiler/build_wasm/embed.tracy
 ```
 
-Actions caches pixi environments, ccache, and CPM sources on GitHub, separately from local files. Validation also uploads the wheel, Tracy tools, their manifest, and smoke-test results as workflow artifacts. Only with manual `release` enabled, `fork-release` creates a tag, publishes a public GitHub release, and starts `fork-notify`, which updates tracer's `main`. Local cache cleanup does not remove remote caches, artifacts, tags, or releases.
+Actions caches pixi environments, ccache, and CPM sources on GitHub, separately from local files. Validation also uploads the wheel, its manifest, and smoke-test results as workflow artifacts. Only with manual `release` enabled, `fork-release` creates a tag, publishes a public GitHub release, and starts `fork-notify`, which updates tracer's `main`. Local cache cleanup does not remove remote caches, artifacts, tags, or releases.
 
 ## Compared with upstream wheels
 

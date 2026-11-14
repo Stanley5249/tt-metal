@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Number, check, and publish fork releases for fork-release.yaml.
 
-  manifest <dist> <sha>          record the built wheel and Tracy tools for sha
+  manifest <dist> <sha>          record the built wheel for sha
   check <dist> <sha>             require dist to match its manifest for sha
   plan <base> <sha>              choose the release tag and what to do
   publish <tag> <sha> <dist> <notes>
@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 MANIFEST = "fork-manifest.json"
-TRACY = "tracy-tools-linux_x86_64.tar.gz"
 CONDA = re.compile(r"(v(\d+)\.(\d+)\.(\d+)(?:-dev(\d+))?)-conda\.([1-9][0-9]*)")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -71,13 +70,10 @@ def manifest(dist, sha):
     wheels = sorted(p.name for p in Path(dist).glob("ttnn-*.whl"))
     if len(wheels) != 1:
         raise Fail(f"expected one ttnn wheel in {dist}, found {wheels}")
-    assets = {}
-    for name in [wheels[0], TRACY]:
-        path = Path(dist) / name
-        if not path.is_file() or path.stat().st_size == 0:
-            raise Fail(f"{path} is missing or empty")
-        assets[name] = {"size": path.stat().st_size, "sha256": sha256(path)}
-    return {"sha": sha, "assets": assets}
+    path = Path(dist) / wheels[0]
+    if path.stat().st_size == 0:
+        raise Fail(f"{path} is empty")
+    return {"sha": sha, "assets": {wheels[0]: {"size": path.stat().st_size, "sha256": sha256(path)}}}
 
 
 def check(dist, sha):
@@ -172,8 +168,8 @@ def verify(release, tag, sha, draft, expected=None):
             raise Fail(f"{tag} assets {assets} differ from the validated {wanted}")
         return
     wheels = [n for n in assets if n.startswith("ttnn-") and n.endswith(".whl")]
-    if sorted(assets) != sorted([*wheels, TRACY]) or len(wheels) != 1:
-        raise Fail(f"{tag} should carry one ttnn wheel and {TRACY}, not {sorted(assets)}")
+    if len(wheels) != 1 or len(assets) != 1:
+        raise Fail(f"{tag} should carry one ttnn wheel, not {sorted(assets)}")
     for name, (size, digest) in assets.items():
         if size <= 0 or not DIGEST.fullmatch(digest or ""):
             raise Fail(f"{tag} asset {name} is empty or has no sha256 digest")
