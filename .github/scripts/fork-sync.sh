@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Merge an upstream tag into an update branch for one track. fork-sync pushes
-# and validates the branch, then fast-forwards the track to it. Locally, rerun
+# the candidate and fast-forwards the track without builds. Locally, rerun
 # after resolving conflicts and push the branch. Exit status 2 means a merge
 # conflict; any other failure is a fetch, check, or setup error. On success,
 # result is current when the track holds the tag, waiting when the patched
