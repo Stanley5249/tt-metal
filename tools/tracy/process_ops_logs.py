@@ -715,7 +715,7 @@ def _enrich_ops_from_perf_csv(
                 dropped_ops_by_trace[host_trace_id] = dropped_ops_by_trace.get(host_trace_id, 0) + 1
                 continue
 
-            if not candidates and host_trace_id is None:
+            if not candidates and host_trace_id is None and device_rows:
                 # Discarded device markers leave host metadata useful on its own.
                 logger.warning(f"Device {device_id}: op {op_id} has no device data; keeping host-only row")
                 enriched_ops.append(copy.deepcopy(host_op))

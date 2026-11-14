@@ -340,6 +340,9 @@ public:
     void setOutputDir(const std::string& new_output_dir);
 
     // Traverse all cores on the device and read the device profile results
+    void discardResults(distributed::MeshDevice* mesh_device, IDevice* device,
+                        const std::vector<CoreCoord>& virtual_cores);
+
     void readResults(
         distributed::MeshDevice* mesh_device,
         IDevice* device,

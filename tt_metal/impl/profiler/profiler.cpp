@@ -1454,6 +1454,12 @@ void DeviceProfiler::readControlBufferForCore(
     }
 }
 
+void DeviceProfiler::discardResults(
+    distributed::MeshDevice* mesh_device, IDevice* device, const std::vector<CoreCoord>& virtual_cores) {
+    readControlBuffers(mesh_device, device, virtual_cores, false);
+    resetControlBuffers(mesh_device, device, virtual_cores, false);
+}
+
 void DeviceProfiler::readControlBuffers(
     distributed::MeshDevice* mesh_device,
     IDevice* device,
