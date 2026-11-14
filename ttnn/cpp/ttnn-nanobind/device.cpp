@@ -763,6 +763,11 @@ void device_module(nb::module_& m_device) {
                     `bool`: whether a trace capture is in progress.
             )doc");
     m_device.def(
+        "DiscardDeviceProfiler",
+        [](MeshDevice* device) { tt::tt_metal::DiscardMeshDeviceProfilerResults(*device); },
+        nb::arg("device"),
+        "Discard pending device markers without parsing or releasing profiler buffers.");
+    m_device.def(
         "ReadDeviceProfiler",
         [](MeshDevice* mesh_device) {
             ProfilerOptionalMetadata prof_metadata(tt::tt_metal::op_profiler::runtime_id_to_opname_.export_map());

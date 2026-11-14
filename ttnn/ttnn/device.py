@@ -138,6 +138,11 @@ CloseDevice = ttnn._ttnn.device.CloseDevice
 CloseDevices = ttnn._ttnn.device.CloseDevices
 
 
+def DiscardDeviceProfiler(device):
+    """Discard device markers outside trace capture, preserving profiler buffers."""
+    ttnn._ttnn.device.DiscardDeviceProfiler(device)
+
+
 def ReadDeviceProfiler(device):
     ttnn._ttnn.device.ReadDeviceProfiler(device)
 

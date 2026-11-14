@@ -1232,6 +1232,32 @@ DeviceProgramId DecodePerDeviceProgramID(uint32_t encoded_device_program_id) {
 
 }  // namespace detail
 
+void DiscardMeshDeviceProfilerResults(distributed::MeshDevice& mesh_device) {
+#if defined(TRACY_ENABLE)
+    auto& ctx = mesh_device.impl().metal_context();
+    auto& env = mesh_device.impl().metal_env();
+    if (!getDeviceProfilerState(env)) {
+        return;
+    }
+    TT_ASSERT(mesh_device.is_initialized());
+    TT_FATAL(!getDeviceDebugDumpEnabled(env), "Profiler discard requires exclusive reader ownership");
+    // Check every queue before synchronizing any queue.
+    for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
+        TT_FATAL(!mesh_device.mesh_command_queue(cq_id).trace_id().has_value(),
+                 "Profiler discard is not supported during trace capture");
+    }
+    for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
+        mesh_device.mesh_command_queue(cq_id).finish();
+    }
+    for (IDevice* device : mesh_device.get_devices()) {
+        auto& profiler = ctx.profiler_state_manager()->device_profiler_map.at(device->id());
+        const auto cores = detail::getVirtualCoresForProfiling(ctx, device, ProfilerReadState::NORMAL);
+        profiler.readControlBuffers(&mesh_device, device, cores, false);
+        profiler.resetControlBuffers(&mesh_device, device, cores, false);
+    }
+#endif
+}
+
 void ReadMeshDeviceProfilerResults(
     distributed::MeshDevice& mesh_device,
     ProfilerReadState state,

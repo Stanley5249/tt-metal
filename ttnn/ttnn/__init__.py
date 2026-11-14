@@ -366,6 +366,7 @@ from ttnn.device import (
     CloseDevice,
     CloseDevices,
     ReadDeviceProfiler,
+    DiscardDeviceProfiler,
     SetDefaultDevice,
     GetDefaultDevice,
     SubDevice,
