@@ -1253,6 +1253,9 @@ void DiscardMeshDeviceProfilerResults(distributed::MeshDevice& mesh_device) {
         auto& profiler = ctx.profiler_state_manager()->device_profiler_map.at(device->id());
         const auto cores = detail::getVirtualCoresForProfiling(ctx, device, ProfilerReadState::NORMAL);
         profiler.discardResults(&mesh_device, device, cores);
+        if (!env.get_rtoptions().get_simulator_enabled()) {
+            profiler.sampleSimulatorClock();
+        }
     }
 #endif
 }
@@ -1290,6 +1293,10 @@ void ReadMeshDeviceProfilerResults(
     }
 
     for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
+        TT_FATAL(!mesh_device.mesh_command_queue(cq_id).trace_id().has_value(),
+                 "Profiler read is not supported during trace capture");
+    }
+    for (uint8_t cq_id = 0; cq_id < mesh_device.num_hw_cqs(); ++cq_id) {
         mesh_device.mesh_command_queue(cq_id).finish();
     }
 
@@ -1312,6 +1319,12 @@ void ReadMeshDeviceProfilerResults(
             }
         }
         return;
+    }
+
+    if (!env.get_rtoptions().get_simulator_enabled()) {
+        for (IDevice* device : mesh_device.get_devices()) {
+            profiler_state_manager->device_profiler_map.at(device->id()).sampleSimulatorClock();
+        }
     }
 
     for (auto* device : mesh_device.impl().get_devices()) {
