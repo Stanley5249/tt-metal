@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.81.0
+          pixi-version: v0.84.2
           locked: true
           cache: true
           environments: ci
@@ -89,7 +89,7 @@ jobs:
           submodules: recursive
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.81.0
+          pixi-version: v0.84.2
           locked: true
           cache: true
           activate-environment: true
@@ -175,7 +175,7 @@ jobs:
           path: dist
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.81.0
+          pixi-version: v0.84.2
           locked: true
           cache: true
           environments: wheel
