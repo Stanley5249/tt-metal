@@ -681,6 +681,7 @@ def _enrich_ops_from_perf_csv(
 
         enriched_ops = []
         dropped_ops_by_trace: Dict[int, int] = {}
+        host_only_ops = 0
         for host_op in host_ops_by_device[device_id]:
             op_id = int(host_op["global_call_count"])
             host_trace_id = host_op.get("metal_trace_id")
@@ -717,7 +718,7 @@ def _enrich_ops_from_perf_csv(
 
             if not candidates and host_trace_id is None and device_rows:
                 # Discarded device markers leave host metadata useful on its own.
-                logger.warning(f"Device {device_id}: op {op_id} has no device data; keeping host-only row")
+                host_only_ops += 1
                 enriched_ops.append(copy.deepcopy(host_op))
                 continue
 
@@ -753,6 +754,13 @@ def _enrich_ops_from_perf_csv(
 
                 enriched_op["_device_perf_row"] = perf_row
                 enriched_ops.append(enriched_op)
+
+        if host_only_ops:
+            logger.warning(
+                f"Device {device_id}: {host_only_ops} eager host ops have no rows in "
+                f"{PROFILER_CPP_DEVICE_PERF_REPORT}, such as ops whose device markers were discarded; they appear "
+                f"in the report as host-only rows"
+            )
 
         for dropped_trace_id, dropped_count in sorted(dropped_ops_by_trace.items()):
             logger.warning(
