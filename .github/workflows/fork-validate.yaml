@@ -1,4 +1,4 @@
-# Shared build-only validation for candidates and releases.
+# Shared build and smoke tests for manual release runs.
 name: fork-validate
 
 on:
@@ -110,6 +110,8 @@ jobs:
             build-stable-
       - id: build
         run: just build
+      - if: always() && steps.build.outcome != 'skipped'
+        run: pixi run ccache -s
       - run: just split-counter-test
       - run: just simulator-clock-test
       - if: always() && steps.build.outcome != 'skipped'

@@ -3,7 +3,7 @@
 
   manifest <dist> <sha>          record the built wheel and Tracy tools for sha
   check <dist> <sha>             require dist to match its manifest for sha
-  plan <base> <sha> [--resume]   choose the release tag and what to do
+  plan <base> <sha>              choose the release tag and what to do
   publish <tag> <sha> <dist> <notes>
                                  draft, verify, publish, and verify again
   published <tag> <sha>          verify a release published earlier
@@ -90,14 +90,13 @@ def check(dist, sha):
     return recorded
 
 
-def plan(base, sha, tags, all_releases, resume):
-    """Return {"action", "tag"}; action is build, notify, or none.
+def plan(base, sha, tags, all_releases):
+    """Return {"action", "tag"}; action is build or notify.
 
     tags maps the fork's conda tag names to their commits. A tag or a tagless
     draft at sha means a release of sha was started, so it is finished rather
     than numbered again. An unfinished release of another commit on base stops
-    every run, resumes included, so it is never left behind silently. Without
-    those, resume does nothing, and a new release takes the next number on
+    every run, so it is never left behind silently. A new release takes the next number on
     base after every tag and release, drafts included.
     """
     by_tag = {r["tag_name"]: r for r in all_releases}
@@ -126,8 +125,6 @@ def plan(base, sha, tags, all_releases, resume):
         m = CONDA.fullmatch(r["tag_name"])
         if m and m[1] == base and r["draft"]:
             raise Fail(f"draft {r['tag_name']} releases another commit; {retry}")
-    if resume:
-        return {"action": "none", "tag": ""}
     numbers = [int(m[6]) for t in [*tags, *by_tag] if (m := CONDA.fullmatch(t)) and m[1] == base]
     return {"action": "build", "tag": f"{base}-conda.{max(numbers, default=0) + 1}"}
 
@@ -268,8 +265,8 @@ def main(argv):
                 print(f"{asset['sha256']}  {name}")
         elif command == "check" and len(args) == 2:
             check(*args)
-        elif command == "plan" and len(args) in (2, 3) and args[2:] in ([], ["--resume"]):
-            result = plan(args[0], args[1], local_tags(), releases(), resume=bool(args[2:]))
+        elif command == "plan" and len(args) == 2:
+            result = plan(args[0], args[1], local_tags(), releases())
             print(f"action={result['action']}\ntag={result['tag']}")
         elif command == "publish" and len(args) == 4:
             print(f"latest={str(publish(*args)).lower()}")

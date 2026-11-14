@@ -1,9 +1,4 @@
-# Validates one exact commit on ttsim. fork-sync calls it to fast-forward a
-# track to a validated update and publish its release, or to finish a release
-# already started at the track's tip; started by hand, it validates the branch
-# it runs on and, on stable or nightly, can publish a release of that commit.
-# Releases carry the wheel and Tracy tools that the smoke tests used, and
-# notes from git-cliff. FORK.md explains the fork workflows.
+# Manual build, smoke tests, and optional publication.
 name: fork-release
 
 on:
@@ -13,26 +8,6 @@ on:
         description: "Publish a release once the smoke tests pass"
         type: boolean
         default: false
-  workflow_call:
-    inputs:
-      ref:
-        description: "Exact commit to validate, fast-forward the track to, and release"
-        required: true
-        type: string
-      promote:
-        description: "Fast-forward the track this run is on to ref"
-        type: boolean
-        default: false
-      release:
-        type: boolean
-        default: false
-      resume:
-        description: "Only finish a release that a tag or draft at ref already started"
-        type: boolean
-        default: false
-    secrets:
-      FORK_SYNC_TOKEN:
-        required: false
 
 permissions: {}
 
@@ -42,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REF: ${{ inputs.ref || github.sha }}
+  REF: ${{ github.sha }}
 
 jobs:
   validate:
@@ -54,7 +29,7 @@ jobs:
     permissions:
       contents: read
     with:
-      ref: ${{ inputs.ref || github.sha }}
+      ref: ${{ github.sha }}
       label: ${{ needs.version.outputs.label || 'conda.test' }}
 
   version:
@@ -75,7 +50,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RESUME: ${{ inputs.resume }}
     steps:
       - if: github.ref_name != 'stable' && github.ref_name != 'nightly'
         run: |
@@ -96,11 +70,7 @@ jobs:
         run: |
           metadata=$(bash .github/scripts/fork-version.sh "$GITHUB_REF_NAME" "$REF")
           base=$(printf '%s\n' "$metadata" | awk -F= '$1 == "base" {print $2}')
-          flags=()
-          if [ "$RESUME" = true ]; then
-            flags+=(--resume)
-          fi
-          plan=$(python3 .github/scripts/fork-release.py plan "$base" "$REF" "${flags[@]}")
+          plan=$(python3 .github/scripts/fork-release.py plan "$base" "$REF")
           action=$(printf '%s\n' "$plan" | sed -n 's/^action=//p')
           tag=$(printf '%s\n' "$plan" | sed -n 's/^tag=//p')
           # Notes cover REF's commits since the upstream base, minus those of
@@ -122,7 +92,6 @@ jobs:
           case $action in
             build) echo "Building $tag from $REF" ;;
             notify) echo "$tag already publishes $REF; checking it and notifying tracer" ;;
-            none) echo "No release started at $REF" ;;
           esac >> "$GITHUB_STEP_SUMMARY"
 
   notes:
@@ -172,13 +141,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Only this job holds the sync token, and it runs no repository code. It
-  # moves the track and tags ref in one atomic ref update, so a moved track
-  # always carries its release tag and no tag names an update commit that
-  # missed the track. A rerun updates only what is still missing. It waits
-  # for the notes too, so nothing after the promotion depends on new output.
+  # Tag the exact validated commit without moving either track.
   ref:
-    if: ${{ !cancelled() && (inputs.promote || inputs.release) && needs.version.outputs.action != 'none' && (needs.validate.result == 'success' || needs.version.outputs.action == 'notify') && (needs.notes.result == 'success' || needs.version.outputs.action != 'build') }}
+    if: ${{ !cancelled() && inputs.release && (needs.validate.result == 'success' || needs.version.outputs.action == 'notify') && (needs.notes.result == 'success' || needs.version.outputs.action != 'build') }}
     needs: [version, validate, notes]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -197,26 +162,16 @@ jobs:
           gh workflow list --all -L 500 --json path,state \
             -q '.[] | select(.state == "active" and (.path | startswith(".github/workflows/fork-") | not)) | .path' |
             xargs -rn1 gh workflow disable
-      # Each update names the value it replaces, and force stays off, so the
-      # track only fast-forwards from the tip read here and the tag must not
-      # exist yet. If the track moved during validation, nothing changes and
-      # the next sync merges onto the new tip. An existing tag must name REF.
+      # Never replace an existing tag that names another commit.
       - shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
-          PROMOTE: ${{ inputs.promote }}
           RELEASE: ${{ inputs.release }}
         run: |
           update() {
             jq -nc --arg name "$1" --arg before "$2" --arg after "$REF" '{name: $name, beforeOid: $before, afterOid: $after, force: false}'
           }
           updates=()
-          if [ "$PROMOTE" = true ]; then
-            tip=$(gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
-            if [ "$tip" != "$REF" ]; then
-              updates+=("$(update "refs/heads/$GITHUB_REF_NAME" "$tip")")
-            fi
-          fi
           if [ "$RELEASE" = true ]; then
             if found=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2> "$RUNNER_TEMP/tag.err"); then
               read -r type sha <<< "$found"

@@ -39,7 +39,7 @@ jobs:
   # fork-sync pushes update branches and promotions with its own token, so
   # those pushes trigger this workflow like a person's push.
   disable-upstream:
-    if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly' || startsWith(github.ref, 'refs/heads/chore/sync-')
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly' || startsWith(github.ref, 'refs/heads/chore/sync-')) }}
     needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 5

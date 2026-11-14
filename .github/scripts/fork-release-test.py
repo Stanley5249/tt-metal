@@ -143,9 +143,8 @@ class ReleaseTests(unittest.TestCase):
             published("v1.0.0-conda.4"),
             published("v1.1.0-dev1-conda.9"),
         ]
-        self.assertEqual(release.plan("v1.0.0", A, tags, releases, False), {"action": "build", "tag": "v1.0.0-conda.5"})
-        self.assertEqual(release.plan("v1.2.0", A, tags, releases, False)["tag"], "v1.2.0-conda.1")
-        self.assertEqual(release.plan("v1.0.0", A, tags, releases, True), {"action": "none", "tag": ""})
+        self.assertEqual(release.plan("v1.0.0", A, tags, releases), {"action": "build", "tag": "v1.0.0-conda.5"})
+        self.assertEqual(release.plan("v1.2.0", A, tags, releases)["tag"], "v1.2.0-conda.1")
 
     def test_plan_resumes_a_release_started_at_the_commit(self):
         cases = {
@@ -155,10 +154,9 @@ class ReleaseTests(unittest.TestCase):
             "published": ({"v1.0.0-conda.2": A}, [published("v1.0.0-conda.2")], "notify"),
         }
         for name, (tags, releases, action) in cases.items():
-            for resume in (False, True):
-                with self.subTest(name, resume=resume):
-                    result = release.plan("v1.0.0", A, tags, releases, resume)
-                    self.assertEqual(result, {"action": action, "tag": "v1.0.0-conda.2"})
+            with self.subTest(name):
+                result = release.plan("v1.0.0", A, tags, releases)
+                self.assertEqual(result, {"action": action, "tag": "v1.0.0-conda.2"})
 
     def test_plan_refuses_ambiguous_or_pending_releases(self):
         cases = {
@@ -168,10 +166,8 @@ class ReleaseTests(unittest.TestCase):
             "draft v1.0.0-conda.1": ({"v1.0.0-conda.1": B}, [published("v1.0.0-conda.1", draft=True)]),
         }
         for message, (tags, releases) in cases.items():
-            # A scheduled resume reports an unfinished release instead of passing it over.
-            for resume in (False, True):
-                with self.subTest(message, resume=resume), self.assertRaisesRegex(release.Fail, message):
-                    release.plan("v1.0.0", A, tags, releases, resume)
+            with self.subTest(message), self.assertRaisesRegex(release.Fail, message):
+                release.plan("v1.0.0", A, tags, releases)
 
     def test_newest_compares_versions_within_a_channel(self):
         releases = [
