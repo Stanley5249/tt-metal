@@ -74,6 +74,17 @@ int main() {
         previous = host;
     }
 
+    // Hardware keeps the fitted local slope outside anchors, including a single-anchor session.
+    using tt::tt_metal::hardware_tick_to_host_time;
+    for (const auto& test : std::vector<std::pair<uint64_t, double>>{{3, 34}, {7, 42}, {10, 48}}) {
+        if (std::fabs(hardware_tick_to_host_time(one, test.first, 2.0) - test.second) > 1e-6) {
+            failures++;
+        }
+    }
+    if (std::fabs(hardware_tick_to_host_time(samples, 60, 2.0) - 1500) > 1e-6) {
+        failures++;
+    }
+
     if (failures != 0) {
         return 1;
     }

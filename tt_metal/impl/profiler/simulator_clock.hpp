@@ -42,4 +42,15 @@ inline double simulator_tick_to_host_time(
     return static_cast<double>(before.host_time) + fraction * static_cast<double>(after->host_time - before.host_time);
 }
 
+// Hardware extrapolates with the chip's open sync slope, rather than freezing outside the samples.
+inline double hardware_tick_to_host_time(
+    const std::vector<SimulatorClockSample>& samples, uint64_t tick, double host_per_tick) {
+    const auto& anchor = tick < samples.front().device_time ? samples.front() : samples.back();
+    if (tick <= samples.front().device_time || tick >= samples.back().device_time) {
+        return anchor.host_time + (static_cast<double>(tick) - anchor.device_time) * host_per_tick;
+    }
+    bool clamped = false;
+    return simulator_tick_to_host_time(samples, tick, clamped);
+}
+
 }  // namespace tt::tt_metal
