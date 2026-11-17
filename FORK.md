@@ -88,6 +88,8 @@ fork-notify    published/manual  notify-tracer
 
 `fork-checks` runs `just ci`, including sync, release, and installed-model checks. Track and candidate pushes disable inherited workflows even when checks fail. Fork workflows use no local composite actions; upstream actions stay in the tree for merge compatibility but are not used by fork workflows.
 
+Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci). `pixi.toml` pins one pixi release with `requires-pixi`, and each fork workflow repeats it in `pixi-version`; pixi rejects a mismatch. To upgrade pixi, change both and run `pixi lock` in one commit. Fork workflows pin actions to full commit SHAs.
+
 `fork-validate` checks upstream SFPI/ttsim pins, builds the wheel and tests the installed wheel on Wormhole and Blackhole simulators. Regression tests cover models packaging, Tracy capture/viewer, device profiling, NoC tracing, and simulator timestamps. `fork-manifest.json` ties the commit to the wheel's SHA-256 digest. Smoke tests and publication verify the same wheel. Build jobs use read-only tokens and save ccache on failure.
 
 `fork-select-tag.sh` validates upstream tags. `fork-version.sh` checks the upstream base recorded by `pixi.toml` and derives the wheel version. `fork-release.py` allocates `<upstream-tag>-conda.N` after existing tags and drafts, resumes a release at the same commit, and rejects unfinished releases at another commit. Manual releases queue per track. Stable releases take GitHub's latest label only when newest; nightly releases are prereleases. Publication checks tag identity, asset names, sizes, and manifest digests before and after publishing. A published release never changes.
