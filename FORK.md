@@ -40,14 +40,14 @@ The fork's source patches, all maintained here:
 | nominal AICLK for simulator ticks                 | `tt_metal/impl/profiler/profiler_analysis.*`, `profiler.cpp`                                                                          |
 | wait for each ttsim core's profiler flush         | `tt_metal/impl/profiler/tt_metal_profiler.cpp`                                                                                        |
 | place ttsim device zones on host time in Tracy    | `tt_metal/impl/profiler/`, `tt_metal/llrt/llrt.cpp`, `tt_metal/impl/program/slow_dispatch.cpp`, `tt_metal/impl/host_api/tt_metal.cpp` |
-| place hardware device zones per chip and per read | `tt_metal/impl/profiler/`, `tools/tracy/process_ops_logs.py`                                                                          |
+| place hardware device zones per chip and per read | `tt_metal/impl/profiler/`                                                                                                             |
 | discard device markers without reading them       | `tt_metal/impl/profiler/`, `ttnn/cpp/ttnn-nanobind/device.cpp`, `ttnn/ttnn/`                                                         |
 | ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/ttt_compat/tt/model_config.py`                                                                               |
-| ship the ttsim version pin                        | `setup.py`                                                                                                                            |
 | bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                                                                                                 |
 | bundle the Tracy tools, viewer, and licenses      | `setup.py`                                                                                                                            |
-| fix the Tracy CLI's exit code, `-o`, and viewer   | `tools/tracy/__main__.py`, `tools/tracy/serve_wasm.py`                                                                                |
 | build in pixi                                     | `.gitattributes`, `.gitignore`                                                                                                        |
+
+`tools/tracy/` matches upstream. tt-metal's own ops report step fails on an eager op whose device markers were discarded, so a workflow that discards markers builds its report another way, as tt-scope does.
 
 ttsim's clock advances only when the host reads the device, so its ticks have no fixed rate in host time. The device profiler samples the simulator clock of every profiled device with Tracy's host clock around each program launch, around each wait for programs to finish, and after each profiler read, and places ttsim markers in Tracy by interpolating between those samples. Every device is sampled at each point, because chips that share one simulator clock run while the host works on any of them. Each sample costs about three register reads per device, so a workload spanning N devices pays for about N² reads per program, and reads of a remote chip clock the simulator too; this is small next to the polling of a ttsim run. Profiler CSV files, ops reports, and NoC traces keep raw ticks. Search for `TT-SIM-PROFILER-SYNC` to find every hook.
 
