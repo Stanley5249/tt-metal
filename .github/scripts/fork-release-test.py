@@ -265,7 +265,7 @@ class TtsimTests(unittest.TestCase):
     NOW = datetime.datetime(2026, 10, 31, tzinfo=datetime.timezone.utc)
 
     def build(self, tag, **changes):
-        assets = [{"name": n, "size": 1, "digest": "sha256:" + "0" * 64} for n in ttsim.ASSETS]
+        assets = [{"name": "libttsim_wh.so", "size": 1, "digest": "sha256:" + "0" * 64}]
         assets.append({"name": ttsim.package(tag), "size": 1, "digest": "sha256:" + "a" * 64})
         return {"tag_name": tag, "draft": False, "prerelease": False, "assets": assets} | changes
 
@@ -302,18 +302,21 @@ class TtsimTests(unittest.TestCase):
                         self.assertEqual(manifest.read_text(), source)
 
     def test_broken_highest_build_fails(self):
+        package = r"ttsim-1\.1\.0\+steps\.1-0\.conda"
         for asset in [{"size": 0}, {"digest": None}, {"digest": "sha1:00"}]:
             with self.subTest(asset):
                 fork = [self.build("v1.1.0-steps.1")]
-                fork[0]["assets"][0] |= asset
-                with self.assertRaisesRegex(ttsim.Fail, "libttsim_wh.so"):
+                fork[0]["assets"][1] |= asset
+                with self.assertRaisesRegex(ttsim.Fail, package):
                     self.decide(fork, [])
-        for index, name in [(1, "libttsim_bh.so"), (2, r"ttsim-1\.1\.0\+steps\.1-0\.conda")]:
-            with self.subTest(name):
-                fork = [self.build("v1.1.0-steps.1")]
-                del fork[0]["assets"][index]
-                with self.assertRaisesRegex(ttsim.Fail, name):
-                    self.decide(fork, [])
+        fork = [self.build("v1.1.0-steps.1")]
+        del fork[0]["assets"][1]
+        with self.assertRaisesRegex(ttsim.Fail, package):
+            self.decide(fork, [])
+        # Only the package matters; a broken raw library asset does not.
+        fork = [self.build("v1.1.0-steps.1")]
+        fork[0]["assets"][0] |= {"size": 0}
+        self.assertEqual(self.decide(fork, [])[0], "ready")
 
     def test_missing_build_waits_only_for_a_new_highest_release(self):
         self.assertEqual(self.decide([], [self.upstream("v1.0.0", 900), self.upstream("v1.1.0", 47.9)])[0], "waiting")

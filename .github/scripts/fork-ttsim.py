@@ -27,8 +27,6 @@ UPSTREAM = "tenstorrent/ttsim"
 FORK = "Stanley5249/ttsim"
 MANIFEST = Path("pixi.toml")
 VERSION = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
-# The x86 libraries that every build must carry; the conda package holds the same files.
-ASSETS = ("libttsim_wh.so", "libttsim_bh.so")
 PIN_LINE = re.compile(r'^ttsim = \{ url = "[^"]*", sha256 = "[^"]*" \}$', re.MULTILINE)
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -72,12 +70,11 @@ def decide(fork, version, fork_releases, upstream_releases, now):
     if published:
         _, release = max(published, key=lambda pair: pair[0])
         tag = release["tag_name"]
-        assets = {a["name"]: a for a in release["assets"]}
-        for name in (*ASSETS, package(tag)):
-            asset = assets.get(name)
-            if not asset or asset["size"] <= 0 or not DIGEST.fullmatch(asset.get("digest") or ""):
-                raise Fail(f"{fork} {tag} has no non-empty {name} with a sha256 digest; fix or replace that release")
-        return "ready", tag, assets[package(tag)]["digest"].removeprefix("sha256:")
+        # The fork installs only the conda package, whose recipe checks the libraries it holds.
+        asset = next((a for a in release["assets"] if a["name"] == package(tag)), None)
+        if not asset or asset["size"] <= 0 or not DIGEST.fullmatch(asset.get("digest") or ""):
+            raise Fail(f"{fork} {tag} has no non-empty {package(tag)} with a sha256 digest; fix or replace that release")
+        return "ready", tag, asset["digest"].removeprefix("sha256:")
     formal = {
         r["tag_name"]: r
         for r in upstream_releases

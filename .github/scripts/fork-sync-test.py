@@ -362,15 +362,14 @@ class ForkSyncTests(unittest.TestCase):
                 self.assertIn(message, self.sync(success=False, status=1))
                 self.assertNotIn("result", self.outputs())
 
-    def test_ttsim_bump_rejects_a_build_without_digests(self):
+    def test_ttsim_bump_rejects_a_package_without_a_digest(self):
         self.bump_ttsim()
         self.advance()
-        for index, name in enumerate(["libttsim_wh.so", "libttsim_bh.so", "ttsim-1.1.0+steps.1-0.conda"]):
-            with self.subTest(name):
-                broken = ttsim_build("v1.1.0-steps.1")
-                del broken["assets"][index]["digest"]
-                self.releases({"Stanley5249/ttsim": [broken]})
-                self.assertIn(name, self.sync(success=False, status=1))
+        name = "ttsim-1.1.0+steps.1-0.conda"
+        broken = ttsim_build("v1.1.0-steps.1")
+        next(a for a in broken["assets"] if a["name"] == name).pop("digest")
+        self.releases({"Stanley5249/ttsim": [broken]})
+        self.assertIn(name, self.sync(success=False, status=1))
 
     def test_unchanged_ttsim_pin_keeps_the_track_build(self):
         # A newer build of the same pin does not move it, and gh is not asked.
