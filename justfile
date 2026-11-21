@@ -18,6 +18,11 @@ wheel_work := justfile_directory() / "build_wheel"
 # Fail instead of re-solving when pixi.lock is out of date; run `pixi lock` after a manifest change.
 export PIXI_LOCKED := "true"
 
+# Install or update the command-line tools that recipes and CI call
+[group("setup")]
+tools:
+    pixi global install just tombi uv actionlint shellcheck zizmor
+
 # Install the pixi environment
 [group("setup")]
 install:
@@ -85,13 +90,13 @@ wheel label="":
     # environment's Python, which ttnn was compiled against.
     TT_FROM_PRECOMPILED_DIR="$PWD" SETUPTOOLS_SCM_PRETEND_VERSION="$version" \
         DIST_EXTRA_CONFIG="{{ wheel_work }}/setup.cfg" \
-        pixi run uv build --wheel --python "$(pixi run which python)" --out-dir "{{ dist_dir }}" .
+        uv build --wheel --python "$(pixi run which python)" --out-dir "{{ dist_dir }}" .
     ls -l "{{ dist_dir }}"
 
 # Format pixi.toml and the justfile
 [group("verify")]
 fmt:
-    pixi run -e ci tombi format pixi.toml
+    tombi format pixi.toml
     just --fmt
 
 # Build and run the host test of the profiler's tear-free wall clock read
@@ -118,12 +123,12 @@ simulator-clock-test:
 [group("verify")]
 ci:
     pixi lock --check --dry-run
-    pixi run -e ci tombi format --check pixi.toml
-    pixi run -e ci tombi lint pixi.toml
+    tombi format --check pixi.toml
+    tombi lint pixi.toml
     just --fmt --check
-    pixi run -e ci actionlint .github/workflows/fork-*.yaml
-    pixi run -e ci zizmor --offline .github/workflows/fork-*.yaml
-    pixi run -e ci shellcheck .github/scripts/fork-*.sh
-    pixi run -e ci uv run --no-project python .github/scripts/fork-sync-test.py
-    pixi run -e ci uv run --no-project python .github/scripts/fork-release-test.py
-    pixi run -e ci uv run --no-project python .github/scripts/fork-models-check-test.py
+    actionlint .github/workflows/fork-*.yaml
+    zizmor --offline .github/workflows/fork-*.yaml
+    shellcheck .github/scripts/fork-*.sh
+    uv run --no-project python .github/scripts/fork-sync-test.py
+    uv run --no-project python .github/scripts/fork-release-test.py
+    uv run --no-project python .github/scripts/fork-models-check-test.py

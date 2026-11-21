@@ -1,0 +1,6 @@
+# Fork workflows follow version tags rather than commit SHAs; FORK.md says why.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin
