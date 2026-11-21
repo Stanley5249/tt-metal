@@ -106,7 +106,6 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.dist = Path(temp.name)
         (self.dist / "ttnn-1.0.0+conda.1-cp312-cp312-linux_x86_64.whl").write_bytes(b"wheel")
-        (self.dist / "ttnn-1.0.0+conda.1.thin-cp312-cp312-linux_x86_64.whl").write_bytes(b"thin")
         (self.dist / "tt-metal-1.0.0+conda.1-0.conda").write_bytes(b"conda")
         self.notes = self.dist / "notes.md"
         self.notes.write_text("generated notes\n")
@@ -249,13 +248,15 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.Fail, "has no release"):
             release.published("v1.0.0-conda.2", A)
 
-    def test_published_release_may_predate_the_conda_split(self):
+    def test_published_release_may_predate_the_metapackage(self):
         fake = self.use(FakeGitHub({"v1.0.0-conda.1": A}))
         release.publish("v1.0.0-conda.1", A, self.dist, self.notes)
         assets = fake.find("v1.0.0-conda.1")["assets"]
-        assets[:] = [a for a in assets if a["name"].endswith("_x86_64.whl") and ".thin-" not in a["name"]]
+        assets[:] = [a for a in assets if a["name"].endswith(".whl")]
         self.assertTrue(release.published("v1.0.0-conda.1", A))
         assets.append(dict(assets[0], name="tt-metal-1.0.0+conda.1-0.conda"))
+        self.assertTrue(release.published("v1.0.0-conda.1", A))
+        assets.append(dict(assets[0], name="tt-metal-1.0.0+conda.1-1.conda"))
         with self.assertRaisesRegex(release.Fail, "alone or with"):
             release.published("v1.0.0-conda.1", A)
 

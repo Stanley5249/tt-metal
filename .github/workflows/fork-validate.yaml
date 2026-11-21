@@ -127,8 +127,7 @@ jobs:
             ~/.cache/cpm
           key: build-${{ needs.metadata.outputs.track }}-${{ needs.metadata.outputs.base }}-${{ github.run_id }}
       - run: just wheel --label "$LABEL"
-      # The tt-metal conda package and thin ttnn wheel from the same wheel; the
-      # recipe's tests check that their binaries find every library.
+      # The tt-metal metapackage with the wheel's version.
       - run: just conda
       # The manifest ties the artifacts to this commit; smoke tests and the
       # release check every file against it.
@@ -193,7 +192,7 @@ jobs:
           REF: ${{ inputs.ref }}
         run: python .github/scripts/fork-release.py check dist "$REF"
       # The global uv launcher sets its own CONDA_PREFIX, so name the Python.
-      - run: uv pip install --python "$(command -v python)" "$(find dist -name 'ttnn-*.whl' ! -name '*.thin-*')"
+      - run: uv pip install --python "$(command -v python)" dist/ttnn-*.whl
       - run: python .github/scripts/fork-models-check.py
       - run: just link-ttsim
       - run: python .github/scripts/fork-smoke.py

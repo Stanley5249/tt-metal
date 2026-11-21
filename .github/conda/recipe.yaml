@@ -1,92 +1,46 @@
-# Repackages the native half of a fork ttnn wheel as one tt-metal conda
-# package: the shared libraries in lib/, and in share/tt-metal/ everything the
-# kernel JIT and Tracy read at run time, laid out as in the wheel's ttnn/
-# directory. The thin ttnn wheel that `just conda` makes from the same wheel
-# holds the Python side, and its _ttnn extension loads these libraries, so
-# install the two from one release. No Python package comes from here: ttnn's
-# Python dependencies stay on PyPI. `just conda` sets the two variables.
+# A metadata-only tt-metal conda package: it ships no files and depends on the
+# native libraries that the monolithic ttnn wheel of the same release loads
+# from the environment, so a consumer pins this package beside the wheel
+# instead of listing them itself. Keep it in step with feature.runtime in
+# pixi.toml, which lists the same libraries for this tree.
 context:
-  # The wheel's PEP 440 version, such as 0.81.1+conda.8.
+  # The wheel's PEP 440 version, such as 0.81.1+conda.8; `just conda` sets it.
   version: ${{ env.get("TT_METAL_VERSION") }}
 
 package:
   name: tt-metal
   version: ${{ version }}
 
-source:
-  # The unpacked monolithic wheel.
-  - path: ${{ env.get("TT_METAL_WHEEL_DIR") }}
-
 build:
   number: 0
   string: "0"
-  script: |
-    root="$PREFIX/share/tt-metal"
-    mkdir -p "$root" "$PREFIX/lib"
-    cp -a ttnn/build ttnn/runtime ttnn/tt_metal ttnn/ttnn "$root/"
-    # The libraries go where conda's loader paths and the thin wheel look.
-    mv "$root"/build/lib/* "$PREFIX/lib/"
-    rmdir "$root/build/lib"
-    mkdir -p "$PREFIX/etc/conda/activate.d" "$PREFIX/etc/conda/deactivate.d"
-    cp "$RECIPE_DIR/activate.sh" "$PREFIX/etc/conda/activate.d/tt-metal.sh"
-    cp "$RECIPE_DIR/deactivate.sh" "$PREFIX/etc/conda/deactivate.d/tt-metal.sh"
-  dynamic_linking:
-    # Point the host binaries at lib/ instead of LD_LIBRARY_PATH; the RISC-V
-    # firmware and kernel objects under runtime/ are left alone.
-    binary_relocation:
-      - lib/*.so*
-      - share/tt-metal/build/tools/profiler/bin/*
-      - share/tt-metal/runtime/sfpi/compiler/bin/*
-      - share/tt-metal/runtime/sfpi/compiler/libexec/**
-    missing_dso_allowlist:
-      - libc.so.6
-      - libm.so.6
-      - libdl.so.2
-      - libpthread.so.0
-      - librt.so.1
-      - ld-linux-x86-64.so.2
-  # Kernel sources and firmware ship byte for byte.
-  prefix_detection:
-    ignore: true
+  noarch: generic
 
 requirements:
-  # Repackaged binaries get no compiler run_exports, so these name what they
-  # load: the C++ runtime they were built against (clang 20 with GCC 13's
-  # libstdc++, sysroot glibc 2.34), UMD's hwloc, tt_metal's numa, and the SFPI
-  # compiler's mpc (with gmp and mpfr) and zstd.
   run:
+    # The wheel's libraries are built with clang 20 against GCC 13's
+    # libstdc++ and glibc 2.34, newer than some systems ship.
     - __glibc >=2.34
     - libgcc >=13
     - libstdcxx >=13
+    # UMD's hwloc and tt_metal's numa.
     - libhwloc >=2
     - libnuma
+    # The SFPI compiler that the kernel JIT runs: mpc brings gmp and mpfr for
+    # cc1plus, and zstd is for as and ld.
     - mpc
     - zstd
 
 tests:
-  - package_contents:
-      files:
-        exists:
-          - lib/libtt_metal.so
-          - lib/_ttnncpp.so
-          - share/tt-metal/tt_metal/soc_descriptors/wormhole_b0_80_arch.yaml
-          - share/tt-metal/build/tools/profiler/bin/tracy-capture
-          - share/tt-metal/build/profiler/build_wasm/tracy-profiler.wasm
-          - share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++
   - script:
-      - test -n "$TT_METAL_RUNTIME_ROOT"
-      # ldd must succeed and find every library.
-      - for f in $PREFIX/lib/_ttnncpp.so $PREFIX/share/tt-metal/build/tools/profiler/bin/tracy-capture; do out=$(ldd "$f") || exit 1; if printf '%s\n' "$out" | grep 'not found'; then exit 1; fi; done
-      - $PREFIX/share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ --version
+      - test -f "$PREFIX/lib/libhwloc.so.15"
+      - test -f "$PREFIX/lib/libnuma.so.1"
+      - test -f "$PREFIX/lib/libmpc.so.3"
+      - test -f "$PREFIX/lib/libzstd.so.1"
+      - test -f "$PREFIX/lib/libstdc++.so.6"
 
 about:
   homepage: https://github.com/Stanley5249/tt-metal
   repository: https://github.com/Stanley5249/tt-metal
-  summary: tt-metal's native libraries, kernel JIT tree, and Tracy tools from the Stanley5249 fork
+  summary: The native runtime libraries that the Stanley5249 fork's ttnn wheel loads
   license: Apache-2.0
-  # The notices that the wheel carries; the Tracy tools' own are in
-  # share/tt-metal/build/profiler/licenses/.
-  license_file:
-    - ttnn-${{ version }}.dist-info/licenses/LICENSE
-    - ttnn-${{ version }}.dist-info/licenses/NOTICE
-    - ttnn-${{ version }}.dist-info/licenses/LICENSE_understanding.txt
