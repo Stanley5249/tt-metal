@@ -22,6 +22,7 @@ export PIXI_LOCKED := "true"
 [group("setup")]
 tools:
     pixi global install just tombi uv actionlint shellcheck zizmor
+    pixi global update just tombi uv actionlint shellcheck zizmor
 
 # Install the pixi environment
 [group("setup")]
