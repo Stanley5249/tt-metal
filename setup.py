@@ -439,8 +439,13 @@ class CMakeBuild(build_ext):
         copy_required_files(
             source_dir / "tt_metal/third_party", tracy_licenses, ["tracy/LICENSE", "tracy/public/libbacktrace/LICENSE"]
         )
+        # CPM fetched the viewer's dependencies into the cache that its build records: its own .cpm-cache, or, since
+        # upstream shares it with the viewer, the parent build's CPM source cache.
+        wasm_cache = (build_dir / "profiler/build_wasm/CMakeCache.txt").read_text()
+        cpm_cache = re.search(r"^CPM_SOURCE_CACHE:PATH=(.+)$", wasm_cache, re.M)
+        assert cpm_cache, "The Tracy viewer build records no CPM_SOURCE_CACHE"
         copy_required_files(
-            build_dir / "profiler/build_wasm/.cpm-cache",
+            Path(cpm_cache[1]),
             tracy_licenses,
             [
                 "capstone/*/LICENSES/{LICENSE.TXT,LICENSE_BSD_3_CLAUSE.txt,LICENSE_LLVM.TXT}",
