@@ -1,5 +1,5 @@
 """Check that the installed wheel ships the tt_transformers modules and model
-parameters that tt-vllm-tracer imports.
+parameters that tt-scope imports.
 
 fork-validate's smoke job runs it as a file after installing the wheel, so the
 checkout's models/ folder cannot answer for the wheel. It finds the modules

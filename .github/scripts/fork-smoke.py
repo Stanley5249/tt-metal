@@ -19,7 +19,7 @@ import time
 
 import torch
 
-# tt-vllm-tracer imports tt_transformers through models.common, which needs
+# tt-scope imports tt_transformers through models.common, which needs
 # every package the wheel ships beside ttnn.
 import models.common.utility_functions  # noqa: F401
 import ttnn

@@ -27,8 +27,7 @@ jobs:
       TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
       # Do not check out or run release code with the cross-repository secret.
-      - id: release
-        env:
+      - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
@@ -40,20 +39,14 @@ jobs:
             echo "::error::Draft releases cannot notify tracer"
             exit 1
           fi
-          track=stable
-          if [[ "$TAG" == *-dev* ]]; then
-            track=nightly
-          fi
-          echo "track=$track" >> "$GITHUB_OUTPUT"
       - env:
           GH_TOKEN: ${{ secrets.TRACER_DISPATCH_TOKEN }}
-          TRACK: ${{ steps.release.outputs.track }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::error::TRACER_DISPATCH_TOKEN is not configured"
             exit 1
           fi
-          jq -n --arg release "$TAG" --arg track "$TRACK" \
-            '{event_type: "tt-metal-released", client_payload: {repository: "Stanley5249/tt-metal", release: $release, track: $track}}' |
-            gh api --method POST repos/Stanley5249/tt-vllm-tracer/dispatches --input -
-          echo "Notified tracer: $TRACK / $TAG" >> "$GITHUB_STEP_SUMMARY"
+          jq -n --arg release "$TAG" \
+            '{event_type: "tt-metal-released", client_payload: {repository: "Stanley5249/tt-metal", release: $release}}' |
+            gh api --method POST repos/Stanley5249/tt-scope/dispatches --input -
+          echo "Notified tt-scope: $TAG" >> "$GITHUB_STEP_SUMMARY"
