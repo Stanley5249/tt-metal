@@ -75,8 +75,8 @@ tests:
           - share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++
   - script:
       - test -n "$TT_METAL_RUNTIME_ROOT"
-      - "! ldd $PREFIX/lib/_ttnncpp.so | grep 'not found'"
-      - "! ldd $PREFIX/share/tt-metal/build/tools/profiler/bin/tracy-capture | grep 'not found'"
+      # ldd must succeed and find every library.
+      - for f in $PREFIX/lib/_ttnncpp.so $PREFIX/share/tt-metal/build/tools/profiler/bin/tracy-capture; do out=$(ldd "$f") || exit 1; if printf '%s\n' "$out" | grep 'not found'; then exit 1; fi; done
       - $PREFIX/share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ --version
 
 about:
@@ -84,3 +84,9 @@ about:
   repository: https://github.com/Stanley5249/tt-metal
   summary: tt-metal's native libraries, kernel JIT tree, and Tracy tools from the Stanley5249 fork
   license: Apache-2.0
+  # The notices that the wheel carries; the Tracy tools' own are in
+  # share/tt-metal/build/profiler/licenses/.
+  license_file:
+    - ttnn-${{ version }}.dist-info/licenses/LICENSE
+    - ttnn-${{ version }}.dist-info/licenses/NOTICE
+    - ttnn-${{ version }}.dist-info/licenses/LICENSE_understanding.txt
