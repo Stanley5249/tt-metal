@@ -38,6 +38,10 @@ ttnn = { path = ".", editable = true }
 [feature.build.activation.env]
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
 TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
+# setuptools-scm cannot read the fork's vX.Y.Z-conda.N tags, so installing the
+# editable ttnn needs a version; pixi passes this to that build too. A release
+# build sets its own.
+SETUPTOOLS_SCM_PRETEND_VERSION = "${SETUPTOOLS_SCM_PRETEND_VERSION:-0.0.0}"
 
 # What running ttnn needs, from this tree or from a wheel.
 [feature.runtime.dependencies]

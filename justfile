@@ -90,9 +90,11 @@ wheel label="":
     # Package the existing build instead of compiling it again. uv installs
     # tt-metal's build-system requirements in isolation and builds for the
     # environment's Python, which ttnn was compiled against.
+    # Its own line, so a failed lookup stops the recipe instead of building for another Python.
+    python=$(pixi run which python)
     TT_FROM_PRECOMPILED_DIR="$PWD" SETUPTOOLS_SCM_PRETEND_VERSION="$version" \
         DIST_EXTRA_CONFIG="{{ wheel_work }}/setup.cfg" \
-        uv build --wheel --python "$(pixi run which python)" --out-dir "{{ dist_dir }}" .
+        uv build --wheel --python "$python" --out-dir "{{ dist_dir }}" .
     ls -l "{{ dist_dir }}"
 
 # Build the tt-metal conda metapackage for dist/'s ttnn wheel, with the wheel's version, in dist/
