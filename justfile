@@ -95,36 +95,21 @@ wheel label="":
         uv build --wheel --python "$(pixi run which python)" --out-dir "{{ dist_dir }}" .
     ls -l "{{ dist_dir }}"
 
-# Split dist/'s ttnn wheel into a tt-metal conda package and a thin ttnn wheel, both in dist/
+# Build the tt-metal conda metapackage for dist/'s ttnn wheel, with the wheel's version, in dist/
 [group("release")]
 [script]
 conda:
-    work="{{ conda_work }}"
-    rm -rf "$work" "{{ dist_dir }}"/tt-metal-*.conda "{{ dist_dir }}"/ttnn-*.thin-*.whl
+    rm -rf "{{ conda_work }}" "{{ dist_dir }}"/tt-metal-*.conda
     wheels=("{{ dist_dir }}"/ttnn-*.whl)
     if [ "${#wheels[@]}" -ne 1 ] || [ ! -f "${wheels[0]}" ]; then
         echo "expected one ttnn wheel in {{ dist_dir }}; run just wheel" >&2
         exit 1
     fi
-    mkdir -p "$work"
-    pixi exec -s wheel -- wheel unpack "${wheels[0]}" -d "$work"
-    unpacked=("$work"/ttnn-*)
-    version=${unpacked[0]##*/ttnn-}
-    # The conda package takes the native libraries and the JIT and Tracy trees.
-    TT_METAL_VERSION="$version" TT_METAL_WHEEL_DIR="${unpacked[0]}" \
-        pixi exec -s "rattler-build 0.80.*" -- rattler-build build \
-        --recipe .github/conda/recipe.yaml --output-dir "$work/out"
-    cp "$work"/out/linux-64/tt-metal-*.conda "{{ dist_dir }}/"
-    # The thin wheel keeps the Python packages and the _ttnn extension, which
-    # loads the libraries from the environment's lib/. Its local version
-    # gains "thin", so both wheels can share a release.
-    case "$version" in *+*) thin="$version.thin" ;; *) thin="$version+thin" ;; esac
-    rm -rf "${unpacked[0]}"/ttnn/{build,runtime,tt_metal,ttnn}
-    pixi exec -s patchelf -- patchelf --set-rpath '$ORIGIN/../../..' "${unpacked[0]}"/ttnn/_ttnn*.so
-    sed -i "s/^Version: .*/Version: $thin/" "${unpacked[0]}/ttnn-$version.dist-info/METADATA"
-    mv "${unpacked[0]}/ttnn-$version.dist-info" "${unpacked[0]}/ttnn-$thin.dist-info"
-    mv "${unpacked[0]}" "$work/ttnn-$thin"
-    pixi exec -s wheel -- wheel pack "$work/ttnn-$thin" -d "{{ dist_dir }}"
+    # A wheel name is ttnn-<version>-<tags>.whl, and a version has no "-".
+    version=${wheels[0]##*/ttnn-}
+    TT_METAL_VERSION=${version%%-*} pixi exec -s "rattler-build 0.80.*" -- rattler-build build \
+        --recipe .github/conda/recipe.yaml --output-dir "{{ conda_work }}"
+    cp "{{ conda_work }}"/noarch/tt-metal-*.conda "{{ dist_dir }}/"
     ls -l "{{ dist_dir }}"
 
 # Format pixi.toml and the justfile

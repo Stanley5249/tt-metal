@@ -24,11 +24,10 @@ from pathlib import Path
 MANIFEST = "fork-manifest.json"
 CONDA = re.compile(r"(v(\d+)\.(\d+)\.(\d+)(?:-dev(\d+))?)-conda\.([1-9][0-9]*)")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-# A release carries the monolithic ttnn wheel, and since the conda split also
-# the tt-metal conda package and the thin ttnn wheel made from it.
+# A release carries the ttnn wheel and the tt-metal conda metapackage that
+# names its native dependencies.
 ASSETS = {
-    "ttnn wheel": re.compile(r"ttnn-(?!.*\.thin-).*\.whl"),
-    "thin ttnn wheel": re.compile(r"ttnn-.*\.thin-.*\.whl"),
+    "ttnn wheel": re.compile(r"ttnn-.*\.whl"),
     "tt-metal conda package": re.compile(r"tt-metal-.*\.conda"),
 }
 
@@ -188,10 +187,10 @@ def verify(release, tag, sha, draft, expected=None):
         if assets != wanted:
             raise Fail(f"{tag} assets {assets} differ from the validated {wanted}")
         return
-    # Releases before the conda split carry only the wheel.
+    # Releases before the metapackage carry only the wheel.
     counts = [len(found) for found in kinds(assets).values()]
-    if counts not in ([1, 0, 0], [1, 1, 1]):
-        raise Fail(f"{tag} should carry one ttnn wheel, alone or with one thin wheel and conda package, not {sorted(assets)}")
+    if counts not in ([1, 0], [1, 1]):
+        raise Fail(f"{tag} should carry one ttnn wheel, alone or with one conda package, not {sorted(assets)}")
     for name, (size, digest) in assets.items():
         if size <= 0 or not DIGEST.fullmatch(digest or ""):
             raise Fail(f"{tag} asset {name} is empty or has no sha256 digest")
