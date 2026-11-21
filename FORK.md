@@ -1,6 +1,6 @@
 # Stanley5249/tt-metal
 
-This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship one ttnn wheel that bundles the Tracy tools and viewer. This file stays on the fork's two tracks.
+This fork of [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) builds tt-metal with Tracy for ttsim in a sudo-free pixi environment. Releases ship one ttnn wheel that bundles the Tracy tools and viewer, and the same build split in two: a `tt-metal` conda package and a thin ttnn wheel. This file stays on the fork's two tracks.
 
 ## Branches
 
@@ -109,6 +109,7 @@ Sizes are from one local build. A cold `just build` takes about 32 min locally a
 | `~/.cache/ccache/`                       | `just build`                     | 0.6 GB |
 | `generated/`, `~/.cache/tt-metal-cache/` | `just test`, `just trace`        | 2 GB   |
 | `dist/`, `build_wheel/`                  | `just wheel`                     | 0.4 GB |
+| `dist/`, `build_conda/`                  | `just conda`                     | 0.3 GB |
 
 `just link-ttsim`, which `just test` and `just trace` run first, writes one path outside the table's sizes: the symlink `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library, and `.github/actions/setup-ttsim` belongs to upstream's disabled workflows.
 
@@ -167,4 +168,14 @@ Upstream's `.github/workflows/wheels.yaml` builds with cibuildwheel in manylinux
 
 ## Releases
 
-Tags use `<upstream-tag>-conda.N`. The wheel adds `+conda.N` as a PEP 440 local version and writes `-dev` as `.dev`. The [tt-vllm-tracer](https://github.com/Stanley5249/tt-vllm-tracer) project's `pyproject.toml` and `docs/env-vars.md` describe consuming the release wheel.
+Tags use `<upstream-tag>-conda.N`. The wheel adds `+conda.N` as a PEP 440 local version and writes `-dev` as `.dev`. The [tt-scope](https://github.com/Stanley5249/tt-scope) project's `pyproject.toml` and `docs/side-effects.md` describe consuming the release.
+
+Each release carries three assets from one build, which `fork-manifest.json` ties to the commit:
+
+| Asset                                 | Holds                                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `ttnn-<version>-cp312-*.whl`          | everything: Python packages, `_ttnn`, native libraries, kernel JIT tree, SFPI, Tracy tools     |
+| `tt-metal-<version>-0.conda`          | native libraries in `lib/`, and the JIT tree, SFPI, and Tracy tools in `share/tt-metal/`       |
+| `ttnn-<version>.thin-cp312-*.whl`     | Python packages and `_ttnn`, whose RUNPATH points at the environment's `lib/`                  |
+
+Install the monolithic wheel alone, or the conda package with the thin wheel from the same release: `_ttnn` and the libraries share no stable ABI. The conda package's activation sets `TT_METAL_RUNTIME_ROOT` and `TT_METAL_HOME` to `share/tt-metal/`, and puts the environment's `lib/` first on `LD_LIBRARY_PATH`, because a PyPI wheel such as torch, imported first, would otherwise load the system's older libstdc++. It declares only native dependencies, so ttnn's Python dependencies still come from PyPI. `just conda` makes both from the monolithic wheel in `dist/` without compiling: rattler-build repackages the native half with `.github/conda/recipe.yaml`, whose tests check that every binary finds its libraries, and patchelf points the thin wheel's `_ttnn` at `lib/`. A change to Python code or kernel sources therefore needs only `just wheel` and `just conda`. pixi caches a conda package by name, version, and build, so a local rebuild with the same version installs the cached one until that cache entry is removed.

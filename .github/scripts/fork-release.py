@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Number, check, and publish fork releases for fork-release.yaml.
 
-  manifest <dist> <sha>          record the built wheel for sha
+  manifest <dist> <sha>          record the built artifacts for sha
   check <dist> <sha>             require dist to match its manifest for sha
   plan <base> <sha>              choose the release tag and what to do
   publish <tag> <sha> <dist> <notes>
@@ -24,6 +24,13 @@ from pathlib import Path
 MANIFEST = "fork-manifest.json"
 CONDA = re.compile(r"(v(\d+)\.(\d+)\.(\d+)(?:-dev(\d+))?)-conda\.([1-9][0-9]*)")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+# A release carries the monolithic ttnn wheel, and since the conda split also
+# the tt-metal conda package and the thin ttnn wheel made from it.
+ASSETS = {
+    "ttnn wheel": re.compile(r"ttnn-(?!.*\.thin-).*\.whl"),
+    "thin ttnn wheel": re.compile(r"ttnn-.*\.thin-.*\.whl"),
+    "tt-metal conda package": re.compile(r"tt-metal-.*\.conda"),
+}
 
 
 class Fail(Exception):
@@ -66,14 +73,28 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def kinds(names):
+    """Group asset names by kind, failing on a name of no kind."""
+    found = {kind: [] for kind in ASSETS}
+    for name in names:
+        kind = next((k for k, pattern in ASSETS.items() if pattern.fullmatch(name)), None)
+        if kind is None:
+            raise Fail(f"unexpected asset {name}")
+        found[kind].append(name)
+    return found
+
+
 def manifest(dist, sha):
-    wheels = sorted(p.name for p in Path(dist).glob("ttnn-*.whl"))
-    if len(wheels) != 1:
-        raise Fail(f"expected one ttnn wheel in {dist}, found {wheels}")
-    path = Path(dist) / wheels[0]
-    if path.stat().st_size == 0:
-        raise Fail(f"{path} is empty")
-    return {"sha": sha, "assets": {wheels[0]: {"size": path.stat().st_size, "sha256": sha256(path)}}}
+    names = sorted(p.name for pattern in ("ttnn-*.whl", "tt-metal-*.conda") for p in Path(dist).glob(pattern))
+    assets = {}
+    for kind, found in kinds(names).items():
+        if len(found) != 1:
+            raise Fail(f"expected one {kind} in {dist}, found {found}")
+        path = Path(dist) / found[0]
+        if path.stat().st_size == 0:
+            raise Fail(f"{path} is empty")
+        assets[found[0]] = {"size": path.stat().st_size, "sha256": sha256(path)}
+    return {"sha": sha, "assets": assets}
 
 
 def check(dist, sha):
@@ -167,9 +188,10 @@ def verify(release, tag, sha, draft, expected=None):
         if assets != wanted:
             raise Fail(f"{tag} assets {assets} differ from the validated {wanted}")
         return
-    wheels = [n for n in assets if n.startswith("ttnn-") and n.endswith(".whl")]
-    if len(wheels) != 1 or len(assets) != 1:
-        raise Fail(f"{tag} should carry one ttnn wheel, not {sorted(assets)}")
+    # Releases before the conda split carry only the wheel.
+    counts = [len(found) for found in kinds(assets).values()]
+    if counts not in ([1, 0, 0], [1, 1, 1]):
+        raise Fail(f"{tag} should carry one ttnn wheel, alone or with one thin wheel and conda package, not {sorted(assets)}")
     for name, (size, digest) in assets.items():
         if size <= 0 or not DIGEST.fullmatch(digest or ""):
             raise Fail(f"{tag} asset {name} is empty or has no sha256 digest")

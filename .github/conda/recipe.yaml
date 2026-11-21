@@ -1,0 +1,86 @@
+# Repackages the native half of a fork ttnn wheel as one tt-metal conda
+# package: the shared libraries in lib/, and in share/tt-metal/ everything the
+# kernel JIT and Tracy read at run time, laid out as in the wheel's ttnn/
+# directory. The thin ttnn wheel that `just conda` makes from the same wheel
+# holds the Python side, and its _ttnn extension loads these libraries, so
+# install the two from one release. No Python package comes from here: ttnn's
+# Python dependencies stay on PyPI. `just conda` sets the two variables.
+context:
+  # The wheel's PEP 440 version, such as 0.81.1+conda.8.
+  version: ${{ env.get("TT_METAL_VERSION") }}
+
+package:
+  name: tt-metal
+  version: ${{ version }}
+
+source:
+  # The unpacked monolithic wheel.
+  - path: ${{ env.get("TT_METAL_WHEEL_DIR") }}
+
+build:
+  number: 0
+  string: "0"
+  script: |
+    root="$PREFIX/share/tt-metal"
+    mkdir -p "$root" "$PREFIX/lib"
+    cp -a ttnn/build ttnn/runtime ttnn/tt_metal ttnn/ttnn "$root/"
+    # The libraries go where conda's loader paths and the thin wheel look.
+    mv "$root"/build/lib/* "$PREFIX/lib/"
+    rmdir "$root/build/lib"
+    mkdir -p "$PREFIX/etc/conda/activate.d" "$PREFIX/etc/conda/deactivate.d"
+    cp "$RECIPE_DIR/activate.sh" "$PREFIX/etc/conda/activate.d/tt-metal.sh"
+    cp "$RECIPE_DIR/deactivate.sh" "$PREFIX/etc/conda/deactivate.d/tt-metal.sh"
+  dynamic_linking:
+    # Point the host binaries at lib/ instead of LD_LIBRARY_PATH; the RISC-V
+    # firmware and kernel objects under runtime/ are left alone.
+    binary_relocation:
+      - lib/*.so*
+      - share/tt-metal/build/tools/profiler/bin/*
+      - share/tt-metal/runtime/sfpi/compiler/bin/*
+      - share/tt-metal/runtime/sfpi/compiler/libexec/**
+    missing_dso_allowlist:
+      - libc.so.6
+      - libm.so.6
+      - libdl.so.2
+      - libpthread.so.0
+      - librt.so.1
+      - ld-linux-x86-64.so.2
+  # Kernel sources and firmware ship byte for byte.
+  prefix_detection:
+    ignore: true
+
+requirements:
+  # Repackaged binaries get no compiler run_exports, so these name what they
+  # load: the C++ runtime they were built against (clang 20 with GCC 13's
+  # libstdc++, sysroot glibc 2.34), UMD's hwloc, tt_metal's numa, and the SFPI
+  # compiler's mpc (with gmp and mpfr) and zstd.
+  run:
+    - __glibc >=2.34
+    - libgcc >=13
+    - libstdcxx >=13
+    - libhwloc >=2
+    - libnuma
+    - mpc
+    - zstd
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - lib/libtt_metal.so
+          - lib/_ttnncpp.so
+          - share/tt-metal/tt_metal/soc_descriptors/wormhole_b0_80_arch.yaml
+          - share/tt-metal/build/tools/profiler/bin/tracy-capture
+          - share/tt-metal/build/profiler/build_wasm/tracy-profiler.wasm
+          - share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++
+  - script:
+      - test -n "$TT_METAL_RUNTIME_ROOT"
+      - "! ldd $PREFIX/lib/_ttnncpp.so | grep 'not found'"
+      - "! ldd $PREFIX/share/tt-metal/build/tools/profiler/bin/tracy-capture | grep 'not found'"
+      - $PREFIX/share/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ --version
+
+about:
+  homepage: https://github.com/Stanley5249/tt-metal
+  repository: https://github.com/Stanley5249/tt-metal
+  summary: tt-metal's native libraries, kernel JIT tree, and Tracy tools from the Stanley5249 fork
+  license: Apache-2.0
