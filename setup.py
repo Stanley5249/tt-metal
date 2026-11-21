@@ -435,25 +435,21 @@ class CMakeBuild(build_ext):
         copy_required_files(
             source_dir / "tt_metal/third_party", tracy_licenses, ["tracy/LICENSE", "tracy/public/libbacktrace/LICENSE"]
         )
-        # CPM fetched the viewer's dependencies into the cache that its build records: its own .cpm-cache, or, since
-        # upstream shares it with the viewer, the parent build's CPM source cache.
+        # The viewer build records the checkout of each dependency that CPM fetched, which a shared CPM cache can hold
+        # beside other versions.
         wasm_cache = (build_dir / "profiler/build_wasm/CMakeCache.txt").read_text()
-        cpm_cache = re.search(r"^CPM_SOURCE_CACHE:PATH=(.+)$", wasm_cache, re.M)
-        assert cpm_cache, "The Tracy viewer build records no CPM_SOURCE_CACHE"
-        copy_required_files(
-            Path(cpm_cache[1]),
-            tracy_licenses,
-            [
-                "capstone/*/LICENSES/{LICENSE.TXT,LICENSE_BSD_3_CLAUSE.txt,LICENSE_LLVM.TXT}",
-                "freetype/*/LICENSE.TXT",
-                "freetype/*/docs/{FTL.TXT,GPLv2.TXT}",
-                "imgui/*/LICENSE.txt",
-                "json/*/LICENSE.MIT",
-                "md4c/*/LICENSE.md",
-                "ppqsort/*/LICENSE",
-                "zstd/*/{LICENSE,COPYING}",
-            ],
-        )
+        for package, patterns in {
+            "capstone": ["LICENSES/{LICENSE.TXT,LICENSE_BSD_3_CLAUSE.txt,LICENSE_LLVM.TXT}"],
+            "freetype": ["LICENSE.TXT", "docs/{FTL.TXT,GPLv2.TXT}"],
+            "ImGui": ["LICENSE.txt"],
+            "json": ["LICENSE.MIT"],
+            "md4c": ["LICENSE.md"],
+            "PPQSort": ["LICENSE"],
+            "zstd": ["{LICENSE,COPYING}"],
+        }.items():
+            checkout = re.search(rf"^CPM_PACKAGE_{package}_SOURCE_DIR:INTERNAL=(.+)$", wasm_cache, re.M)
+            assert checkout, f"The Tracy viewer build records no checkout of {package}"
+            copy_required_files(Path(checkout[1]), f"{tracy_licenses}/{package.lower()}", patterns)
         copy_tree_with_patterns(source_dir / "ttnn", self.build_lib + "/ttnn", ttnn_patterns)
         copy_tree_with_patterns(source_dir / "ttnn/cpp", self.build_lib + "/ttnn/ttnn/cpp", ttnn_cpp_patterns)
         copy_tree_with_patterns(source_dir / "tt_metal", self.build_lib + "/ttnn/tt_metal", tt_metal_patterns)
