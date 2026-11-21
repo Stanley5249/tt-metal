@@ -42,7 +42,7 @@ The fork's source patches, all maintained here:
 | place ttsim device zones on host time in Tracy    | `tt_metal/impl/profiler/`, `tt_metal/llrt/llrt.cpp`, `tt_metal/impl/program/slow_dispatch.cpp`, `tt_metal/impl/host_api/tt_metal.cpp` |
 | place hardware device zones per chip and per read | `tt_metal/impl/profiler/`                                                                                                             |
 | discard device markers without reading them       | `tt_metal/impl/profiler/`, `ttnn/cpp/ttnn-nanobind/device.cpp`, `ttnn/ttnn/`                                                         |
-| ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/tt_transformers/tt/model_config.py`                                                                               |
+| ship tt_transformers' `models/` for vLLM on ttsim | `setup.py`, `models/ttt_compat/tt/model_config.py`                                                                                   |
 | bundle the SFPI compiler and licenses             | `setup.py`, `tt_metal/sfpi-licenses/`                                                                                                 |
 | bundle the Tracy tools, viewer, and licenses      | `setup.py`                                                                                                                            |
 | build in pixi                                     | `.gitattributes`, `.gitignore`                                                                                                        |

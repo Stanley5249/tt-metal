@@ -384,9 +384,6 @@ class CMakeBuild(build_ext):
         tt_metal_patterns = [
             "api/tt-metalium/buffer_constants.hpp",
             "api/tt-metalium/buffer_types.hpp",
-            "api/tt-metalium/circular_buffer_constants.h",
-            "api/tt-metalium/constants.hpp",
-            "api/tt-metalium/dev_msgs.h",
             "api/tt-metalium/experimental/fabric/fabric_edm_types.hpp",
             "api/tt-metalium/experimental/fabric/edm_fabric_counters.hpp",
             "core_descriptors/*.yaml",
@@ -401,10 +398,9 @@ class CMakeBuild(build_ext):
             "fabric/impl/kernels/tt_fabric_mux_v2_kernel_common.hpp",
             "hw/**/*",
             "hostdevcommon/api/hostdevcommon/**/*",
-            # The DRISC tensor-prefetcher kernel and the two host/device shared headers it
-            # includes: a wheel run resolves kernel includes against the wheel, not TT_METAL_HOME.
+            # The DRISC tensor-prefetcher kernel and the host/device shared header it includes:
+            # a wheel run resolves kernel includes against the wheel, not TT_METAL_HOME.
             "impl/buffers/kernels/**/*",
-            "impl/buffers/dram_sender_state_block.hpp",
             "impl/buffers/tensor_prefetcher_request.hpp",
             "impl/dispatch/kernels/**/*",
             "impl/streaming_profiler/kernels/**/*",
@@ -481,10 +477,12 @@ class CMakeBuild(build_ext):
 
 packages = find_packages(where="ttnn", exclude=["ttnn.examples", "ttnn.examples.*"])
 packages += find_packages("tools")
-# tt-vllm-tracer: ship the models/ subtrees that tt_transformers imports, with
+# tt-scope: ship the models/ subtrees that tt_transformers imports, with
 # its model parameters, so a wheel install needs no tt-metal checkout.
 models_roots = (
+    # tt_transformers holds only an import alias for ttt_compat since v0.82.0-dev20261101.
     "tt_transformers",
+    "ttt_compat",
     "common",
     "perf",
     "demos.utils",
@@ -529,7 +527,7 @@ setup(
     package_data={
         "models": ["**/*.json", "**/*.yaml"],
         # Folders such as Llama-3.2-1B-Instruct are not package names.
-        "models.tt_transformers": ["model_params/**/*"],
+        "models.ttt_compat": ["model_params/**/*"],
     },
     # setuptools-scm adds every tracked file under a package as data; skip tests.
     exclude_package_data={"": ["tests/*"]},
