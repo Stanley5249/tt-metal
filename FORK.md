@@ -88,7 +88,7 @@ fork-notify    published/manual  notify-tracer
 
 `fork-checks` runs `just ci`, including sync, release, and installed-model checks. Track and candidate pushes disable inherited workflows even when checks fail. Fork workflows use no local composite actions; upstream actions stay in the tree for merge compatibility but are not used by fork workflows.
 
-Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci). `pixi.toml` pins one pixi release with `requires-pixi`, and each fork workflow repeats it in `pixi-version`; pixi rejects a mismatch. To upgrade pixi, change both and run `pixi lock` in one commit. Fork workflows pin actions to full commit SHAs.
+Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call, such as just, uv, and the linters, come from `PATH`; `just tools` installs them with `pixi global`, and fork workflows list the ones each job needs in setup-pixi's `global-environments`.
 
 `fork-validate` checks upstream SFPI/ttsim pins, builds the wheel and tests the installed wheel on Wormhole and Blackhole simulators. Regression tests cover models packaging, Tracy capture/viewer, device profiling, NoC tracing, and simulator timestamps. `fork-manifest.json` ties the commit to the wheel's SHA-256 digest. Smoke tests and publication verify the same wheel. Build jobs use read-only tokens and save ccache on failure.
 
@@ -112,7 +112,7 @@ Sizes are from one local build. A cold `just build` takes about 32 min locally a
 
 `just link-ttsim`, which `just test` and `just trace` run first, writes one path outside the table's sizes: the symlink `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library, and `.github/actions/setup-ttsim` belongs to upstream's disabled workflows.
 
-The pixi environments have separate roles. `default` runs local builds and tests with editable ttnn, `ci` runs repository checks, and `wheel` validates the packaged wheel without the editable package shadowing it. Removing an inactive environment requires reinstalling it from the lockfile when next used. The wheel environment also needs the wheel installation step used by validation.
+The pixi environments have separate roles. `default` runs local builds and tests with editable ttnn, and `wheel` validates the packaged wheel without the editable package shadowing it. Removing an inactive environment requires reinstalling it from the lockfile when next used. The wheel environment also needs the wheel installation step used by validation.
 
 Tracy copies captures to `build/profiler/build_wasm/traces/` and points `build/profiler/build_wasm/embed.tracy` at the current capture. Its viewer keeps running after capture, using HTTP port 8080 and WebSocket port 8081 by default. Inspect the `serve_wasm.py` process and use `kill <PID>` to stop only the intended viewer. `pkill -f serve_wasm.py` also stops viewers from other checkouts. Removing capture files does not stop the server.
 

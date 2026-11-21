@@ -9,9 +9,6 @@ name = "tt-metal"
 # The upstream tag this commit is based on; fork-sync moves it with each merge.
 version = "0.83.0.dev20261108"
 channels = ["conda-forge"]
-# One exact release: pixi has changed the lock format between releases.
-# Fork workflows repeat it in pixi-version, and pixi rejects a mismatch.
-requires-pixi = "==0.84.2"
 # The sysroot pin below needs glibc 2.34.
 platforms = [{ platform = "linux-64", glibc = "2.34" }]
 
@@ -72,18 +69,6 @@ TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
 TT_METAL_DISABLE_SFPLOADMACRO = "1"
 
-# Command-line tools for the recipes and the CI checks.
-[feature.tools.dependencies]
-just = "*"
-tombi = "*"
-# `just wheel` packages the build with uv build.
-uv = "*"
-# `just ci` lints the fork workflows: actionlint checks them and, through
-# shellcheck, their run: scripts; zizmor audits their security.
-actionlint = "*"
-shellcheck = "*"
-zizmor = "*"
-
 # Tests convert tensors with torch, pinned to the version upstream tests with
 # in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
 # build, so it comes from the CPU index, which serves nothing else.
@@ -94,7 +79,6 @@ pytest = "*"
 # default and wheel share a solve group, so a wheel is tested with the
 # versions it was built with.
 [environments]
-default = { features = ["build", "runtime", "tools", "test"], solve-group = "main" }
+default = { features = ["build", "runtime", "test"], solve-group = "main" }
 # Runs a built ttnn wheel, with no editable ttnn to shadow it.
-wheel = { features = ["runtime", "tools", "test"], solve-group = "main" }
-ci = ["tools"]
+wheel = { features = ["runtime", "test"], solve-group = "main" }

@@ -58,7 +58,7 @@ jobs:
       # The scripts come from this branch, not from REF, which may hold
       # upstream's new commits. Full history and tags without blobs, so the
       # upstream base can be checked; fetch-depth 0 also fetches update branches.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
@@ -102,13 +102,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.REF }}
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
+      - uses: orhun/git-cliff-action@v4
         with:
           config: .github/cliff.toml
           args: --offline --tag ${{ needs.version.outputs.tag }} ${{ needs.version.outputs.base-commit }}..HEAD
@@ -134,7 +134,7 @@ jobs:
               fi
             } > release-notes.md
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: notes
           path: release-notes.md
@@ -221,18 +221,18 @@ jobs:
       ACTION: ${{ needs.version.outputs.action }}
       TAG: ${{ needs.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: .github/scripts
           persist-credentials: false
       # The smoke logs stay in their artifacts.
       - if: needs.version.outputs.action == 'build'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: ${{ runner.temp }}/dist
       - if: needs.version.outputs.action == 'build'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@v8
         with:
           name: notes
           path: ${{ runner.temp }}/notes
