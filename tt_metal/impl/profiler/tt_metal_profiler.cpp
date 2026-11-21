@@ -875,6 +875,46 @@ bool onlyProfileDispatchCores(const llrt::RunTimeOptions& rtoptions, const Profi
 }
 
 #if defined(TRACY_ENABLE)
+// TT-SIM-PROFILER-SYNC: on ttsim, waits until every profiling core has flushed, so a read or a reset of the
+// profiler buffers sees no flush in flight. Returns false and warns for each core that never finished.
+static bool WaitForSimulatorProfilerFlush(
+    MetalEnvImpl& env, IDevice* device, const std::vector<CoreCoord>& virtual_cores) {
+    if (!env.get_rtoptions().get_simulator_enabled()) {
+        return true;
+    }
+    bool all_done = true;
+    // BRISC reports a program done before its profiler flush, and ttsim advances only when the host
+    // reads the device. Poll each core that started profiling until its flush lands; every read is
+    // one more simulation tick, the same ticks on every run. A fork workaround; FORK.md says when to retire it.
+    constexpr int maxSimulatorReads = 1000;
+    const auto& hal = env.get_hal();
+    for (const CoreCoord& core : virtual_cores) {
+        const HalProgrammableCoreType core_type = tt::llrt::get_core_type(env, device->id(), core);
+        DeviceAddr control_vector_addr =
+            hal.get_dev_addr(core_type, HalL1MemAddrType::PROFILER) +
+            hal.get_dev_msgs_factory(core_type).offset_of<dev_msgs::profiler_msg_t>(
+                dev_msgs::profiler_msg_t::Field::control_vector);
+        bool is_core_done = false;
+        for (int i = 0; i < maxSimulatorReads; i++) {
+            const std::vector<std::uint32_t> control_buffer = env.get_cluster().read_core(
+                device->id(), core, control_vector_addr, kernel_profiler::PROFILER_L1_CONTROL_BUFFER_SIZE);
+            if (control_buffer[kernel_profiler::NOC_X] == 0 ||
+                control_buffer[kernel_profiler::PROFILER_DONE] == 1) {
+                is_core_done = true;
+                break;
+            }
+        }
+        if (!is_core_done) {
+            all_done = false;
+            std::string msg = fmt::format(
+                "Device profiling never finished on device {}, worker core {}, {}", device->id(), core.x, core.y);
+            TracyMessageC(msg.c_str(), msg.size(), tracy::Color::Tomato3);
+            log_warning(tt::LogMetal, "{}", msg);
+        }
+    }
+    return all_done;
+}
+
 // Shared implementation for reading device profiler results
 static void ReadDeviceProfilerResultsImpl(
     MetalContext& ctx,
@@ -932,36 +972,7 @@ static void ReadDeviceProfilerResultsImpl(
         }
     }
 
-    if (env.get_rtoptions().get_simulator_enabled()) {
-        // BRISC reports a program done before its profiler flush, and ttsim advances only when the host
-        // reads the device. Poll each core that started profiling until its flush lands; every read is
-        // one more simulation tick, the same ticks on every run. A fork workaround; FORK.md says when to retire it.
-        constexpr int maxSimulatorReads = 1000;
-        const auto& hal = env.get_hal();
-        for (const CoreCoord& core : virtual_cores) {
-            const HalProgrammableCoreType core_type = tt::llrt::get_core_type(env, device->id(), core);
-            DeviceAddr control_vector_addr =
-                hal.get_dev_addr(core_type, HalL1MemAddrType::PROFILER) +
-                hal.get_dev_msgs_factory(core_type).offset_of<dev_msgs::profiler_msg_t>(
-                    dev_msgs::profiler_msg_t::Field::control_vector);
-            bool is_core_done = false;
-            for (int i = 0; i < maxSimulatorReads; i++) {
-                const std::vector<std::uint32_t> control_buffer = env.get_cluster().read_core(
-                    device->id(), core, control_vector_addr, kernel_profiler::PROFILER_L1_CONTROL_BUFFER_SIZE);
-                if (control_buffer[kernel_profiler::NOC_X] == 0 ||
-                    control_buffer[kernel_profiler::PROFILER_DONE] == 1) {
-                    is_core_done = true;
-                    break;
-                }
-            }
-            if (!is_core_done) {
-                std::string msg = fmt::format(
-                    "Device profiling never finished on device {}, worker core {}, {}", device->id(), core.x, core.y);
-                TracyMessageC(msg.c_str(), msg.size(), tracy::Color::Tomato3);
-                log_warning(tt::LogMetal, "{}", msg);
-            }
-        }
-    }
+    WaitForSimulatorProfilerFlush(env, device, virtual_cores);
 
     TT_FATAL(!ctx.dprint_server(), "Debug print server is running, cannot read device profiler data");
 
@@ -1251,6 +1262,9 @@ void DiscardMeshDeviceProfilerResults(distributed::MeshDevice& mesh_device) {
     for (IDevice* device : mesh_device.get_devices()) {
         auto& profiler = ctx.profiler_state_manager()->device_profiler_map.at(device->id());
         const auto cores = detail::getVirtualCoresForProfiling(ctx, device, ProfilerReadState::NORMAL);
+        // A flush still in flight would land after the reset and leak discarded markers into the next read.
+        TT_FATAL(detail::WaitForSimulatorProfilerFlush(env, device, cores),
+                 "Profiler discard found device {} still flushing", device->id());
         profiler.discardResults(&mesh_device, device, cores);
         if (!env.get_rtoptions().get_simulator_enabled()) {
             profiler.sampleSimulatorClock();
