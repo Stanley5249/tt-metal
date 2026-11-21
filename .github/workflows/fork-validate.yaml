@@ -188,7 +188,8 @@ jobs:
       - env:
           REF: ${{ inputs.ref }}
         run: python .github/scripts/fork-release.py check dist "$REF"
-      - run: uv pip install dist/ttnn-*.whl
+      # The global uv launcher sets its own CONDA_PREFIX, so name the Python.
+      - run: uv pip install --python "$(command -v python)" dist/ttnn-*.whl
       - run: python .github/scripts/fork-models-check.py
       - run: just link-ttsim
       - run: python .github/scripts/fork-smoke.py
