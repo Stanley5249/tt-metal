@@ -20,11 +20,11 @@
 
 #include "buffer.hpp"
 #include "common/TracyTTDeviceData.hpp"
-#include "core_coord.hpp"
+#include <tt-metalium/core_coord.hpp>
 #include "mesh_device.hpp"
 #include "profiler_optional_metadata.hpp"
-#include "profiler_types.hpp"
-#include "simulator_clock.hpp"
+#include "impl/profiler/profiler_types.hpp"
+#include "impl/profiler/simulator_clock.hpp"
 #include "tracy/TracyTTDevice.hpp"
 
 namespace tt::tt_metal {
