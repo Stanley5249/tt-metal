@@ -40,8 +40,9 @@ ttnn = { path = ".", editable = true }
 TT_METAL_HOME = "$PIXI_PROJECT_ROOT"
 TT_METAL_RUNTIME_ROOT = "$PIXI_PROJECT_ROOT/"
 # setuptools-scm cannot read the fork's vX.Y.Z-conda.N tags, so installing the
-# editable ttnn needs a version; pixi passes this to that build too. A release
-# build sets its own.
+# editable ttnn needs a version; pixi passes this to that build too. pixi lock
+# runs without activation, so a manual relock sets it in the shell, as
+# fork/scripts/sync.py does. A release build sets its own.
 SETUPTOOLS_SCM_PRETEND_VERSION = "${SETUPTOOLS_SCM_PRETEND_VERSION:-0.0.0}"
 
 # What running ttnn needs, from this tree or from a wheel.
@@ -75,16 +76,16 @@ TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
 TT_METAL_DISABLE_SFPLOADMACRO = "1"
 
-# Tests convert tensors with torch, pinned to the version upstream tests with
-# in tt_metal/python_env/requirements-dev.txt. PyPI's Linux torch is the CUDA
-# build, so it comes from the CPU index, which serves nothing else.
+# The smoke test compares ttnn with torch, pinned to the version upstream tests
+# with in tt_metal/python_env/requirements-dev.txt. It stays out of runtime,
+# which fork/conda/recipe.yaml repeats for consumers. PyPI's Linux torch is the
+# CUDA build, so it comes from the CPU index, which serves nothing else.
 [feature.test.pypi-dependencies]
 torch = { version = "==2.11.*", index = "https://download.pytorch.org/whl/cpu" }
-pytest = "*"
 
 # default and wheel share a solve group, so a wheel is tested with the
 # versions it was built with.
 [environments]
-default = { features = ["build", "runtime", "test"], solve-group = "main" }
+default = { features = ["build", "runtime", "test"], solve-group = "ttnn" }
 # Runs a built ttnn wheel, with no editable ttnn to shadow it.
-wheel = { features = ["runtime", "test"], solve-group = "main" }
+wheel = { features = ["runtime", "test"], solve-group = "ttnn" }
