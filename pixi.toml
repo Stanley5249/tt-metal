@@ -6,7 +6,8 @@
 # features it needs; the default feature stays empty.
 [workspace]
 name = "tt-metal"
-# The upstream tag this commit is based on; fork-sync moves it with each merge.
+# The upstream tag this commit is based on; fork/scripts/sync.py moves it with
+# each merge.
 version = "0.82.0"
 channels = ["conda-forge"]
 # The sysroot pin below needs glibc 2.34.
@@ -55,7 +56,8 @@ libnuma = "*"
 # brings gmp and mpfr for cc1plus, and zstd is for as and ld.
 mpc = "*"
 zstd = "*"
-# fork-sync moves this pin to the Stanley5249/ttsim build of tt_metal/ttsim-version.
+# fork/scripts/sync.py moves this pin to the Stanley5249/ttsim build of
+# tt_metal/ttsim-version.
 ttsim = { url = "https://github.com/Stanley5249/ttsim/releases/download/v1.15.1-steps.3/ttsim-1.15.1%2Bsteps.3-0.conda", sha256 = "60ae6bd14e19d6c6be77b6334913c9f22eebd56756b4bf2b86698110f0626e0e" }
 
 [feature.runtime.pypi-dependencies]
@@ -67,7 +69,7 @@ websockets = "*"
 # the caller's paths stay after it.
 LD_LIBRARY_PATH = "$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # Run on ttsim in slow dispatch mode, on Wormhole unless TTSIM_ARCH=bh selects
-# Blackhole; `just link-ttsim` puts the SOC descriptor beside the library.
+# Blackhole; `just install` puts the SOC descriptors beside the library.
 TT_METAL_SIMULATOR = "$CONDA_PREFIX/lib/ttsim/${TTSIM_ARCH:-wh}/libttsim_${TTSIM_ARCH:-wh}.so"
 TT_METAL_SLOW_DISPATCH_MODE = "1"
 # ttsim does not simulate SFPLOADMACRO.
