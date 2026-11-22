@@ -42,15 +42,10 @@ jobs:
         with:
           global-environments: |
             just
-            ruff
-            pyrefly
             uv
-            bun
             gh
             git-cliff
             rattler-build
-            actionlint
-            zizmor
       # Keyed per run and restored by channel, then stable, so a failed build
       # still leaves its ccache for the next run. GitHub evicts the oldest
       # entries past the repository's 10 GB.
@@ -101,16 +96,7 @@ jobs:
         with:
           run-install: false
           global-environments: |
-            just
-            ruff
-            pyrefly
-            uv
-            bun
             gh
-            git-cliff
-            rattler-build
-            actionlint
-            zizmor
       - uses: actions/download-artifact@v8
         with:
           name: dist

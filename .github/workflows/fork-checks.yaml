@@ -3,7 +3,7 @@
 # script tests. A channel checks only what it adds: pixi.toml, pixi.lock, and
 # fork-owned files equal to the fork commit it merged, which passed here first.
 # Steps call the tools directly, as `just check` does; change both together.
-# Each job installs only the tools its steps call, from the list in `just tools`.
+# Each job installs only the tools its steps call.
 name: fork-checks
 
 on:
@@ -35,7 +35,6 @@ jobs:
           global-environments: |
             just
             ruff
-            pyrefly
             bun
             actionlint
             zizmor
