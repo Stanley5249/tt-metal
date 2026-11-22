@@ -871,7 +871,7 @@ static bool WaitForSimulatorProfilerFlush(
     bool all_done = true;
     // BRISC reports a program done before its profiler flush, and ttsim advances only when the host
     // reads the device. Poll each core that started profiling until its flush lands; every read is
-    // one more simulation tick, the same ticks on every run. A fork workaround; FORK.md says when to retire it.
+    // one more simulation tick, the same ticks on every run. A fork workaround; fork/README.md says when to retire it.
     constexpr int maxSimulatorReads = 1000;
     const auto& hal = env.get_hal();
     for (const CoreCoord& core : virtual_cores) {
