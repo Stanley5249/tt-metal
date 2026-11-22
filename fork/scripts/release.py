@@ -4,12 +4,12 @@
 # ///
 """Prepare and publish a fork release of HEAD.
 
-prepare numbers the release, builds and packages HEAD, smoke-tests the wheel on
-the Wormhole and Blackhole simulators, and writes dist/<tag>/ with the assets,
-their manifest, the smoke logs, and notes.md for review. publish sends that
-folder's assets and notes to GitHub. GitHub releases and the fork's tags are
-the only state: a draft or tag at HEAD resumes its release, and a published
-release never changes.
+prepare numbers the release, packages the build of HEAD, smoke-tests the wheel
+on the Wormhole simulator, and writes dist/<tag>/ with the assets, their
+manifest, and notes.md for review. publish sends that folder's assets and
+notes to GitHub. Each command has one path and stops on any state it does not
+expect, such as HEAD already released or a draft left over from a failed
+publish, instead of resuming it.
 """
 
 import argparse
@@ -20,7 +20,6 @@ import shutil
 import subprocess
 import sys
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -31,7 +30,6 @@ from sync import (
     UPSTREAM_PINS,
     Asset,
     ForkError,
-    Release,
     activated,
     check_ttsim,
     check_workflows,
@@ -106,14 +104,6 @@ class TagRef(BaseModel):
 TAG_REFS = TypeAdapter(list[list[TagRef]])
 
 
-@dataclass(frozen=True)
-class Plan:
-    """What a release of HEAD needs: build and publish tag, or nothing."""
-
-    tag: str
-    action: Literal["build", "published"]
-
-
 def channel(tag: str) -> Literal["stable", "main"]:
     """Name the channel that a fork or upstream tag belongs to."""
     return "main" if "-dev" in tag else "stable"
@@ -127,34 +117,20 @@ def wheel_version(tag: str) -> str:
     return f"{match[1].removeprefix('v').replace('-dev', '.dev')}+conda.{match[6]}"
 
 
-def plan(base: str, head: str, tags: dict[str, str], known: list[Release]) -> Plan:
-    """Choose the release tag for head on base.
+def next_tag(base: str, head: str, tags: dict[str, str], drafts: list[str]) -> str:
+    """Number a new release of head on base after every tag on base.
 
-    tags maps the fork's tag names to their commits. A tag or a draft at head
-    resumes that release. Any other unfinished release on base stops, so none is
-    left behind silently. A new release takes the next number on base after
-    every tag and release, drafts included.
+    tags maps the fork's release tags to their commits, and drafts names the
+    draft releases. A tag at head or a draft on base stops the release.
     """
-    by_tag = {r.tag_name: r for r in known}
-    at_head = {t for t, commit in tags.items() if commit == head and CONDA.fullmatch(t)}
-    at_head |= {r.tag_name for r in known if r.draft and r.target_commitish == head and CONDA.fullmatch(r.tag_name)}
-    if len(at_head) > 1:
-        raise ForkError(f"{head} carries several releases: {', '.join(sorted(at_head))}; investigate them")
-    if at_head:
-        tag = at_head.pop()
-        if not tag.startswith(f"{base}-conda."):
-            raise ForkError(f"{head} is released as {tag}, not on {base}")
-        release = by_tag.get(tag)
-        return Plan(tag, "published" if release and not release.draft else "build")
-    on_base = [m for t in [*tags, *by_tag] if (m := CONDA.fullmatch(t)) and m[1] == base]
-    for m in on_base:
-        release = by_tag.get(m[0])
-        if release is None:
-            raise ForkError(f"{m[0]} is tagged at {tags[m[0]]} without a release; investigate before releasing again")
-        if release.draft:
-            raise ForkError(f"draft {m[0]} releases {release.target_commitish}; publish or delete it first")
-    number = max((int(m[6]) for m in on_base), default=0) + 1
-    return Plan(f"{base}-conda.{number}", "build")
+    released = sorted(t for t, commit in tags.items() if commit == head)
+    if released:
+        raise ForkError(f"{head} is already released as {', '.join(released)}")
+    left = sorted(d for d in drafts if d.startswith(f"{base}-conda."))
+    if left:
+        raise ForkError(f"draft {left[0]} is left over; delete it with gh release delete {left[0]} -R {FORK_REPO}")
+    numbers = [int(m[6]) for t in tags if (m := CONDA.fullmatch(t)) and m[1] == base]
+    return f"{base}-conda.{max(numbers, default=0) + 1}"
 
 
 def compare(manifest: Manifest, assets: list[Asset]) -> None:
@@ -165,8 +141,8 @@ def compare(manifest: Manifest, assets: list[Asset]) -> None:
         raise ForkError(f"{manifest.tag} assets {found} differ from the prepared {wanted}")
 
 
-def newest(tag: str, known: list[Release]) -> bool:
-    """Whether tag is newer than every other published release on its channel."""
+def newest(tag: str, tags: list[str]) -> bool:
+    """Whether tag is newer than every other release tag on its channel."""
 
     def key(t: str) -> tuple[int, ...]:
         match = CONDA.fullmatch(t)
@@ -174,12 +150,7 @@ def newest(tag: str, known: list[Release]) -> bool:
             raise ForkError(f"{t} is not a fork release tag")
         return tuple(int(x or 0) for x in match.group(2, 3, 4, 5, 6))
 
-    others = [
-        r.tag_name
-        for r in known
-        if not r.draft and r.tag_name != tag and CONDA.fullmatch(r.tag_name) and channel(r.tag_name) == channel(tag)
-    ]
-    return all(key(tag) > key(t) for t in others)
+    return all(key(tag) > key(t) for t in tags if t != tag and channel(t) == channel(tag))
 
 
 def sha256(path: Path) -> str:
@@ -279,7 +250,7 @@ def smoke(folder: Path, wheel: Path) -> None:
     link_ttsim("wheel")
     env = activated("wheel", TTSIM_ARCH="wh")
     python = Path(env["CONDA_PREFIX"]) / "bin/python"
-    # Reinstall, because a resumed release keeps the same version.
+    # Reinstall, because a rerun of prepare keeps the same version.
     run("uv", "pip", "install", "--python", python, "--reinstall-package", "ttnn", wheel)
     # conda links lib/python3.1 to lib/python3.12, so one folder appears twice.
     (home,) = {path.resolve() for path in python.parent.parent.glob("lib/python3.*/site-packages/ttnn/")}
@@ -332,26 +303,24 @@ def prepare() -> None:
     head = git("rev-parse", "HEAD")
     base = checked_base(head)
     tags = remote_tags()
+    # Without push access, as in CI's prepare job, GitHub lists no drafts.
+    tag = next_tag(base, head, tags, [r.tag_name for r in releases(FORK_REPO) if r.draft])
     # git-cliff and the notes range read the fork's tags locally.
     missing = [f"refs/tags/{t}:refs/tags/{t}" for t in tags if not git("tag", "--list", t)]
     if missing:
         git("fetch", "-q", "--no-tags", "origin", *missing)
-    step = plan(base, head, tags, releases(FORK_REPO))
-    if step.action == "published":
-        print(f"{step.tag} already publishes {head}; nothing to prepare")
-        return
-    folder = DIST / step.tag
+    folder = DIST / tag
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
-    version = wheel_version(step.tag)
+    version = wheel_version(tag)
     build_wheel(folder, version)
     build_conda(folder, version)
-    manifest = manifest_of(folder, step.tag, head)
+    manifest = manifest_of(folder, tag, head)
     wheel = folder / next(name for name in manifest.assets if name.endswith(".whl"))
     smoke(folder, wheel)
-    write_notes(folder / "notes.md", step.tag, base, head)
+    write_notes(folder / "notes.md", tag, base, head)
     (folder / "fork-manifest.json").write_text(manifest.model_dump_json(indent=2) + "\n", newline="\n")
-    print(f"Prepared {step.tag} at {head} in {folder}:")
+    print(f"Prepared {tag} at {head} in {folder}:")
     for name, asset in manifest.assets.items():
         print(f"  {asset.sha256}  {name}")
     print(f"Review and edit {folder / 'notes.md'}, push HEAD, then run just publish")
@@ -372,34 +341,13 @@ def prepared(head: str) -> tuple[Path, Manifest]:
     return folder, manifest
 
 
-def verify(release: Release, manifest: Manifest, *, draft: bool) -> None:
-    """Check a release's tag, state, target, and assets."""
-    tag = manifest.tag
-    if release.tag_name != tag or release.draft != draft:
-        raise ForkError(f"{release.tag_name} has draft={release.draft}, expected {tag} with draft={draft}")
-    if release.prerelease != (channel(tag) == "main"):
-        raise ForkError(f"{tag} has prerelease={release.prerelease} on the {channel(tag)} channel")
-    if release.target_commitish != manifest.sha:
-        raise ForkError(f"{tag} targets {release.target_commitish}, not {manifest.sha}")
-    compare(manifest, release.assets)
-    if not draft:
-        commit = remote_tags().get(tag)
-        if commit != manifest.sha:
-            raise ForkError(f"tag {tag} points to {commit}, not {manifest.sha}")
-        if not release.immutable:
-            raise ForkError(f"{tag} is not immutable; enable immutable releases for {FORK_REPO}")
-
-
-def find(tag: str) -> Release:
-    """Read one release, drafts included."""
-    release = next((r for r in releases(FORK_REPO) if r.tag_name == tag), None)
-    if release is None:
-        raise ForkError(f"{tag} has no release")
-    return release
-
-
 def publish() -> None:
-    """Publish the release prepared for HEAD with its reviewed notes."""
+    """Publish the release prepared for HEAD with its reviewed notes.
+
+    The release starts as a draft, so its uploaded assets are checked before
+    anyone can download them. A failure leaves the draft, which the next run
+    names for deletion.
+    """
     head = git("rev-parse", "HEAD")
     folder, manifest = prepared(head)
     tag = manifest.tag
@@ -412,59 +360,45 @@ def publish() -> None:
         raise ForkError(f"origin/{channel(tag)} does not contain {head}; push it first")
     # A new tag can trigger inherited tag workflows.
     check_workflows(head)
-    known = releases(FORK_REPO)
-    step = plan(recorded_base(git("show", f"{head}:{MANIFEST}")), head, remote_tags(), known)
-    if step.tag != tag:
-        raise ForkError(f"{folder} holds {tag}, but GitHub now needs {step.tag}; run just release again")
-    if step.action == "published":
-        verify(find(tag), manifest, draft=False)
-        print(f"{tag} already publishes {head} with the prepared assets")
-        return
-    files = [str(folder / name) for name in manifest.assets]
+    tags = remote_tags()
+    drafts = [r.tag_name for r in releases(FORK_REPO) if r.draft]
+    if next_tag(recorded_base(git("show", f"{head}:{MANIFEST}")), head, tags, drafts) != tag:
+        raise ForkError(f"GitHub has a newer release than {tag} in {folder}; run just release again")
     prerelease = channel(tag) == "main"
-    draft = next((r for r in known if r.tag_name == tag), None)
-    if draft is None:
-        flags = ["--prerelease"] if prerelease else []
-        gh(
-            "release",
-            "create",
-            tag,
-            "-R",
-            FORK_REPO,
-            "--target",
-            head,
-            "--draft",
-            "--title",
-            tag,
-            "--notes-file",
-            str(notes),
-            *flags,
-            *files,
-        )
-    else:
-        # A draft is not public yet, so a partial upload may be replaced.
-        for asset in draft.assets:
-            if asset.name not in manifest.assets:
-                gh("api", "-X", "DELETE", f"repos/{FORK_REPO}/releases/assets/{asset.id}")
-        gh("release", "upload", tag, "-R", FORK_REPO, "--clobber", *files)
-        gh(
-            "release",
-            "edit",
-            tag,
-            "-R",
-            FORK_REPO,
-            f"--prerelease={str(prerelease).lower()}",
-            "--notes-file",
-            str(notes),
-        )
-    release = find(tag)
-    verify(release, manifest, draft=True)
+    files = [str(folder / name) for name in manifest.assets]
+    gh(
+        "release",
+        "create",
+        tag,
+        "-R",
+        FORK_REPO,
+        "--target",
+        head,
+        "--draft",
+        "--title",
+        tag,
+        "--notes-file",
+        str(notes),
+        *(["--prerelease"] if prerelease else []),
+        *files,
+    )
+    draft = next(r for r in releases(FORK_REPO) if r.tag_name == tag)
+    if draft.target_commitish != head:
+        raise ForkError(f"draft {tag} targets {draft.target_commitish}, not {head}")
+    compare(manifest, draft.assets)
     # A backfilled stable release must not take GitHub's latest label from a
     # newer one; main's releases never take it.
-    latest = newest(tag, releases(FORK_REPO)) and not prerelease
-    path = f"repos/{FORK_REPO}/releases/{release.id}"
-    gh("api", "-X", "PATCH", path, "-F", "draft=false", "-f", f"make_latest={str(latest).lower()}")
-    verify(find(tag), manifest, draft=False)
+    latest = not prerelease and newest(tag, list(tags))
+    gh(
+        "api",
+        "-X",
+        "PATCH",
+        f"repos/{FORK_REPO}/releases/{draft.id}",
+        "-F",
+        "draft=false",
+        "-f",
+        f"make_latest={str(latest).lower()}",
+    )
     print(f"Published {tag} at {head}: https://github.com/{FORK_REPO}/releases/tag/{tag}")
 
 
