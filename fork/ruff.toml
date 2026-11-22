@@ -1,0 +1,27 @@
+# Ruff settings for fork/. Ruff takes the nearest configuration, so upstream's
+# pyproject.toml keeps the rest of a channel.
+line-length = 120
+# The scripts declare requires-python in their PEP 723 headers.
+target-version = "py312"
+
+[lint]
+select = ["ALL"]
+ignore = [
+  "COM812", # conflicts with the formatter
+  "CPY001", # no copyright header policy
+  "EM101", # inline exception messages are clearer than throwaway variables
+  "EM102", # formatted exception messages need no throwaway variables
+  "TRY003", # keep contextual diagnostics beside the check that fails
+]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.per-file-ignores]
+# Tests call private helpers and launch controlled commands to exercise behavior.
+"tests/**" = ["D", "INP001", "S101", "S603", "S607", "SLF001"]
+# The scripts run as files and intentionally write command output.
+"scripts/**" = ["INP001", "T201"]
+
+[format]
+line-ending = "lf"

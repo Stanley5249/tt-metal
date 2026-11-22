@@ -1,0 +1,11 @@
+# pyrefly settings for fork/; `just typecheck` runs it here, away from
+# upstream's Python.
+project-includes = ["scripts", "tests"]
+# The scripts import their siblings, and the tests import conftest.
+search-path = ["scripts", "tests"]
+# The scripts' PEP 723 headers require 3.12.
+python-version = "3.12"
+preset = "strict"
+# smoke.py runs in the pixi wheel environment, which the typecheck environment
+# lacks, and ttnn ships its C++ module without stubs.
+replace-imports-with-any = ["ttnn", "ttnn.*", "torch", "torch.*", "models", "models.*"]
