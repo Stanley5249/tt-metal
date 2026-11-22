@@ -297,7 +297,7 @@ def write_notes(path: Path, tag: str, base: str, head: str) -> None:
 def prepare() -> None:
     """Package and smoke-test the build of HEAD into dist/<tag>/.
 
-    `just release` builds first, so this script starts no build.
+    Run `just build` first: this script starts no build.
     """
     require_clean()
     head = git("rev-parse", "HEAD")
@@ -310,6 +310,8 @@ def prepare() -> None:
     if missing:
         git("fetch", "-q", "--no-tags", "origin", *missing)
     folder = DIST / tag
+    if (folder / "notes.md").exists():
+        raise ForkError(f"{folder / 'notes.md'} exists; edit it, or delete {folder} to prepare again")
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
     version = wheel_version(tag)
@@ -323,7 +325,7 @@ def prepare() -> None:
     print(f"Prepared {tag} at {head} in {folder}:")
     for name, asset in manifest.assets.items():
         print(f"  {asset.sha256}  {name}")
-    print(f"Review and edit {folder / 'notes.md'}, push HEAD, then run just publish")
+    print(f"Review and edit {folder / 'notes.md'}, push HEAD, then run fork/scripts/release.py publish")
 
 
 def prepared(head: str) -> tuple[Path, Manifest]:
@@ -363,7 +365,7 @@ def publish() -> None:
     tags = remote_tags()
     drafts = [r.tag_name for r in releases(FORK_REPO) if r.draft]
     if next_tag(recorded_base(git("show", f"{head}:{MANIFEST}")), head, tags, drafts) != tag:
-        raise ForkError(f"GitHub has a newer release than {tag} in {folder}; run just release again")
+        raise ForkError(f"GitHub has a newer release than {tag} in {folder}; delete the folder and prepare again")
     prerelease = channel(tag) == "main"
     files = [str(folder / name) for name in manifest.assets]
     gh(

@@ -110,14 +110,3 @@ test *args:
 [group("verify")]
 [parallel]
 ci: check test
-
-# Build, package, and smoke-test HEAD on ttsim into dist/<tag>/ with notes.md to review; writes nothing remote
-[group("release")]
-release: build
-    pixi run --script fork/scripts/release.py prepare
-
-# Publish the release that `just release` prepared for HEAD, with its reviewed notes
-[confirm("Publish the release prepared for HEAD on GitHub? (y/n)")]
-[group("release")]
-publish:
-    pixi run --script fork/scripts/release.py publish

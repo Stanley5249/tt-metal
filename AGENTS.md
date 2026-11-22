@@ -11,7 +11,7 @@ This is a fork. Branches, sync, release, and the patch list: fork/README.md. Com
 
 ## Safety and approvals
 
-- Ask before pushing, before `just publish`, before dispatching `fork-release`, and before changing GitHub workflows, releases, tags, or secrets.
+- Ask before pushing, before `fork/scripts/release.py publish`, before dispatching `fork-release`, and before changing GitHub workflows, releases, tags, or secrets.
 - Use ttsim, never real hardware, unless hardware is authorized: the pixi environment sets `TT_METAL_SIMULATOR`, and a bare script outside it can open the card.
 - Keep project dependencies inside pixi. Use CPU builds of torch.
 

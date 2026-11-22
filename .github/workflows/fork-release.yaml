@@ -64,7 +64,9 @@ jobs:
             build-${{ github.ref_name }}-
             build-stable-
       - id: prepare
-        run: just release
+        run: |
+          just build
+          pixi run --script fork/scripts/release.py prepare
       - if: always() && steps.prepare.outcome != 'skipped'
         uses: actions/cache/save@v6
         with:
@@ -113,4 +115,4 @@ jobs:
         with:
           name: dist
           path: dist
-      - run: just --yes publish
+      - run: pixi run --script fork/scripts/release.py publish
