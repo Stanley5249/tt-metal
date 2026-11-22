@@ -1,0 +1,116 @@
+# Builds, smoke-tests, and publishes a release of the dispatched channel with
+# the same recipes as a local release; the dispatch is the approval.
+# fork/README.md explains releases.
+name: fork-release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# Two releases of one channel would race for one number.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+
+jobs:
+  # The build downloads and runs third-party code, so it gets no write access.
+  # GitHub hides drafts from it; publish checks the numbering again.
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The build's defaults suit a workstation. Unity builds take a few GB per
+      # job and the runner has 16 GB, and the caches share the repository's
+      # 10 GB with each other.
+      TT_BUILD_JOBS: "4"
+      CCACHE_MAXSIZE: 3G
+    steps:
+      # The build, both environments, and the caches outgrow the runner's free
+      # disk; the job needs none of these SDKs.
+      - run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+      # Full history and tags without blobs, for the upstream base and the notes.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          submodules: recursive
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          global-environments: |
+            just
+            ruff
+            pyrefly
+            uv
+            bun
+            gh
+            git-cliff
+            rattler-build
+            actionlint
+            zizmor
+      # Keyed per run and restored by channel, then stable, so a failed build
+      # still leaves its ccache for the next run. GitHub evicts the oldest
+      # entries past the repository's 10 GB.
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.cache/cpm
+          key: build-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            build-${{ github.ref_name }}-
+            build-stable-
+      - id: prepare
+        run: just release
+      - if: always() && steps.prepare.outcome != 'skipped'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.cache/cpm
+          key: build-${{ github.ref_name }}-${{ github.run_id }}
+      - if: always() && steps.prepare.outcome != 'skipped'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # Runs no build code. It publishes the assets that prepare smoke-tested,
+  # after checking them against the manifest.
+  publish:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      # sync.py lists the workflows, which a new tag must not trigger.
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          run-install: false
+          global-environments: |
+            just
+            ruff
+            pyrefly
+            uv
+            bun
+            gh
+            git-cliff
+            rattler-build
+            actionlint
+            zizmor
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - run: just --yes publish

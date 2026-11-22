@@ -1,0 +1,103 @@
+# Checks pushes to the channels and the fork branch. The fork branch holds the
+# recipes and scripts, so it runs the format checks, the linters, and the
+# script tests. A channel checks only what it adds: pixi.toml, pixi.lock, and
+# fork-owned files equal to the fork commit it merged, which passed here first.
+# Steps call the tools directly, as `just check` does; change both together.
+# Every job installs the tools of `just tools`; keep the lists equal.
+name: fork-checks
+
+on:
+  push:
+    branches: [stable, main, fork]
+
+permissions: {}
+
+# A new push replaces checks still running.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  fork:
+    if: github.ref_name == 'fork'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: pixi
+        uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          run-install: false
+          global-environments: |
+            just
+            ruff
+            pyrefly
+            uv
+            bun
+            gh
+            git-cliff
+            rattler-build
+            actionlint
+            zizmor
+      - name: fmt-check
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: just _fmt-check
+      - name: typecheck
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        working-directory: fork
+        run: uv run -q --no-project --with "pydantic>=2" --with pytest pyrefly check --output-format=github --summary=none
+      - name: lint ruff
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: ruff check --output-format=github fork
+      - name: lint actionlint
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: actionlint
+      - name: lint zizmor
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: zizmor --format=github --offline .github/workflows
+      - name: test
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: uvx --with "pydantic>=2" pytest -q fork/tests
+
+  channel:
+    if: github.ref_name != 'fork'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # Full history without blobs, so check-infra finds the last fork merge.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - id: pixi
+        uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          run-install: false
+          global-environments: |
+            just
+            ruff
+            pyrefly
+            uv
+            bun
+            gh
+            git-cliff
+            rattler-build
+            actionlint
+            zizmor
+      # .oxfmtrc.json limits oxfmt to pixi.toml and the fork-owned files.
+      - name: fmt-check oxfmt
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: bunx oxfmt@latest --check
+      - name: lock-check
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: pixi lock --check
+      - name: check-infra
+        if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
+        run: uv run fork/scripts/sync.py check-infra --fork origin/fork
