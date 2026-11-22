@@ -1,0 +1,67 @@
+# git-cliff notes for a fork release: one line on the upstream tag it builds
+# on, then the fork's own commits since that tag that no earlier fork release
+# listed. fork/scripts/release.py passes the range, the tags to skip, and
+# UPSTREAM_BASE and PREVIOUS_RELEASE.
+
+[changelog]
+body = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{%- macro print_commit(commit) -%}
+    - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+        {% if commit.breaking %}[**breaking**] {% endif %}\
+        {{ commit.message | upper_first }} \
+        ([`{{ commit.id | truncate(length=7, end="") }}`]({{ self::remote_url() }}/commit/{{ commit.id }}))
+{%- endmacro -%}
+
+{#- The GitHub release title carries the version, so the body does not. -#}
+{%- set base = get_env(name="UPSTREAM_BASE") -%}
+{#- Skipped tags leave no previous version, so release.py names it. -#}
+{%- set previous_release = get_env(name="PREVIOUS_RELEASE", default="") -%}
+Built from tt-metal [{{ base }}](https://github.com/tenstorrent/tt-metal/releases/tag/{{ base }}). [fork/README.md]({{ self::remote_url() }}/blob/{{ version }}/fork/README.md) lists the patches.
+{% for group, commits in commits | group_by(attribute="group") %}
+    ## {{ group | striptags | trim }}
+    {#- Unscoped commits first, then by scope; sort is stable, so each scope stays newest first. #}
+    {% for commit in commits %}
+        {%- if not commit.scope %}
+        {{ self::print_commit(commit=commit) }}
+        {%- endif %}
+    {%- endfor %}
+    {%- for commit in commits | filter(attribute="scope") | sort(attribute="scope") %}
+        {{ self::print_commit(commit=commit) }}
+    {%- endfor %}
+{% endfor %}
+{% if previous_release %}\
+    **Full Changelog**: [{{ previous_release }}...{{ version }}]({{ self::remote_url() }}/compare/{{ previous_release }}...{{ version }})
+{% endif %}
+"""
+trim = true
+render_always = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "<!-- 00 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 01 -->🐛 Bug Fixes" },
+  { message = "^refactor", group = "<!-- 02 -->🚜 Refactor" },
+  { message = "^doc", group = "<!-- 03 -->📚 Documentation" },
+  { message = "^perf", group = "<!-- 04 -->⚡ Performance" },
+  { message = "^build", group = "<!-- 05 -->📦 Build" },
+  { message = "^style", group = "<!-- 06 -->🎨 Styling" },
+  { message = "^test", group = "<!-- 07 -->🧪 Testing" },
+  { message = "^chore|^ci", group = "<!-- 08 -->⚙️ Miscellaneous Tasks" },
+  { message = "^revert", group = "<!-- 09 -->◀️ Revert" },
+  # filter_unconventional drops merges and git's "Revert" commits first, so
+  # this only takes conventional commits of other types.
+  { message = ".*", group = "<!-- 10 -->💼 Other" },
+]
+# Both stable and nightly fork releases; upstream tags do not match.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+(-dev[0-9]+)?-conda\\.[0-9]+$"
+sort_commits = "newest"
+
+[remote.github]
+owner = "Stanley5249"
+repo = "tt-metal"

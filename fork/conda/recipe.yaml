@@ -1,0 +1,46 @@
+# A metadata-only tt-metal conda package: it ships no files and depends on the
+# native libraries that the monolithic ttnn wheel of the same release loads
+# from the environment, so a consumer pins this package beside the wheel
+# instead of listing them itself. Keep it in step with feature.runtime in
+# pixi.toml, which lists the same libraries for this tree.
+context:
+  # The wheel's PEP 440 version, such as 0.81.1+conda.8; release.py sets it.
+  version: ${{ env.get("TT_METAL_VERSION") }}
+
+package:
+  name: tt-metal
+  version: ${{ version }}
+
+build:
+  number: 0
+  string: "0"
+  noarch: generic
+
+requirements:
+  run:
+    # The wheel's libraries are built with clang 20 against GCC 13's
+    # libstdc++ and glibc 2.34, newer than some systems ship.
+    - __glibc >=2.34
+    - libgcc >=13
+    - libstdcxx >=13
+    # UMD's hwloc and tt_metal's numa.
+    - libhwloc >=2
+    - libnuma
+    # The SFPI compiler that the kernel JIT runs: mpc brings gmp and mpfr for
+    # cc1plus, and zstd is for as and ld.
+    - mpc
+    - zstd
+
+tests:
+  - script:
+      - test -f "$PREFIX/lib/libhwloc.so.15"
+      - test -f "$PREFIX/lib/libnuma.so.1"
+      - test -f "$PREFIX/lib/libmpc.so.3"
+      - test -f "$PREFIX/lib/libzstd.so.1"
+      - test -f "$PREFIX/lib/libstdc++.so.6"
+
+about:
+  homepage: https://github.com/Stanley5249/tt-metal
+  repository: https://github.com/Stanley5249/tt-metal
+  summary: The native runtime libraries that the Stanley5249 fork's ttnn wheel loads
+  license: Apache-2.0
