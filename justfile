@@ -40,7 +40,7 @@ install:
 [env("CMAKE_BUILD_PARALLEL_LEVEL", env("TT_BUILD_JOBS", "10"))]
 [group("setup")]
 build:
-    pixi run --locked -e default ./build_metal.sh --enable-ccache --without-distributed \
+    pixi run --locked ./build_metal.sh --enable-ccache --without-distributed \
         --cpm-source-cache {{ quote(env("CPM_SOURCE_CACHE", home_directory() / ".cache/cpm")) }} \
         --toolchain-path fork/cmake/x86_64-linux-clang-20-conda-toolchain.cmake
 
