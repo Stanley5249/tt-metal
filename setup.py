@@ -486,7 +486,7 @@ class CMakeBuild(build_ext):
 
 packages = find_packages(where="ttnn", exclude=["ttnn.examples", "ttnn.examples.*"])
 packages += find_packages("tools")
-# tt-vllm-tracer: ship the models/ subtrees that tt_transformers imports, with
+# tt-scope: ship the models/ subtrees that tt_transformers imports, with
 # its model parameters, so a wheel install needs no tt-metal checkout.
 models_roots = (
     # tt_transformers holds only an import alias for ttt_compat since v0.82.0-dev20261101.
