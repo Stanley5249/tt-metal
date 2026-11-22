@@ -26,12 +26,12 @@ M upstream merge, F fork merge, s/s' fix and its cherry-pick -x, b pin commit, o
 
 Choose the integration method by the kind of change:
 
-| Change               | Method                                                             |
-| -------------------- | ------------------------------------------------------------------ |
-| fork-owned file      | commit on `fork`, then `git merge fork` on the checked-out channel |
-| upstream update      | `uv run fork/scripts/sync.py merge` on the checked-out channel     |
-| source fix, both     | commit on one channel, `git cherry-pick -x` onto the other         |
-| source fix, one only | commit on that channel, and note it in the patch table             |
+| Change               | Method                                                                    |
+| -------------------- | ------------------------------------------------------------------------- |
+| fork-owned file      | commit on `fork`, then `git merge fork` on the checked-out channel        |
+| upstream update      | `pixi run --script fork/scripts/sync.py merge` on the checked-out channel |
+| source fix, both     | commit on one channel, `git cherry-pick -x` onto the other                |
+| source fix, one only | commit on that channel, and note it in the patch table                    |
 
 Edit fork-owned files in a worktree of the `fork` branch, such as `git worktree add .agents/worktrees/fork fork`. It holds a few files and builds nothing, so it needs no pixi environment; run `just ci` there. A channel takes a fork change at its next sync, or by `git merge fork` when it needs the change sooner. Never merge a channel into `fork`, and never cherry-pick onto it.
 
@@ -86,7 +86,7 @@ Sync runs locally on the checked-out channel; it builds nothing and pushes nothi
 
 ```sh
 git switch --recurse-submodules main && git pull --ff-only
-uv run fork/scripts/sync.py merge [--tag v0.83.0-dev20261130]
+pixi run --script fork/scripts/sync.py merge -- [--tag v0.83.0-dev20261130]
 just install && just build && just ci
 git push origin main
 ```
@@ -104,15 +104,16 @@ Tags use `<upstream-tag>-conda.N`. The wheel adds `+conda.N` as a PEP 440 local 
 A release runs locally or on GitHub Actions with the same scripts. Locally:
 
 ```sh
-just release             # dist/<tag>/: wheel, conda package, manifest, notes.md
+just build
+pixi run --script fork/scripts/release.py prepare   # dist/<tag>/: wheel, conda package, manifest, notes.md
 $EDITOR dist/<tag>/notes.md
 git push origin stable
-just publish             # asks first
+pixi run --script fork/scripts/release.py publish
 ```
 
 On Actions, `gh workflow run fork-release.yaml -R Stanley5249/tt-metal`, with `--ref main` for main, runs the same two recipes in a read-only job and a write job. The recipes have no CI branches: CI sets `TT_BUILD_JOBS` and `CCACHE_MAXSIZE`, and the build's defaults suit a workstation. The dispatch is the approval, and the notes are published as generated. Replace published notes with `gh release edit <tag> -R Stanley5249/tt-metal --notes-file <file>`.
 
-`just release` runs `just build` first, then `fork/scripts/release.py`, which reads GitHub's tags and releases and writes nothing remote. It numbers the release after every existing tag and release on the base, drafts included, resumes a draft or tag at HEAD, and refuses an unfinished release of another commit. It checks upstream's SFPI and ttsim pins, packages the wheel and, with `rattler-build`, the metapackage, and checks that the wheel ships tracy-capture, tracy-csvexport, the viewer's static files, the SFPI tools, and the license texts. rattler-build installs the metapackage in a fresh environment and runs the recipe's tests. The script then installs the wheel in the `wheel` environment and runs `fork/scripts/smoke.py` on the Wormhole simulator, from a folder outside the checkout so that the checkout's `models/` cannot answer for the wheel's: it checks the tt_transformers modules that tt-scope imports and runs one add, without the profiler. Profiler capture tests belong to tt-scope, because a profiler bug found there costs one new `-conda.N`, while capture tests here would slow every release. The notes list HEAD's conventional commits since the upstream base that no earlier fork release listed. `fork-manifest.json` ties the assets to the commit. `just publish` finds the folder whose manifest names HEAD, requires HEAD on the channel's remote branch, checks the numbering again with write access, creates a draft at HEAD, compares GitHub's asset names, sizes, and digests with the manifest, and publishes it, which creates the tag.
+`release.py prepare` packages the last `just build`, so build first. It reads GitHub's tags and releases and writes nothing remote. It numbers the release after every existing tag on the base, and stops when HEAD is already released or a draft is left on the base, instead of resuming either. It checks upstream's SFPI and ttsim pins, packages the wheel and, with `rattler-build`, the metapackage, and checks that the wheel ships tracy-capture, tracy-csvexport, the viewer's static files, the SFPI tools, and the license texts. rattler-build installs the metapackage in a fresh environment and runs the recipe's tests. The script then installs the wheel in the `wheel` environment and runs `fork/scripts/smoke.py` on the Wormhole simulator, from a folder outside the checkout so that the checkout's `models/` cannot answer for the wheel's: it checks the tt_transformers modules that tt-scope imports and runs one add, without the profiler. Profiler capture tests belong to tt-scope, because a profiler bug found there costs one new `-conda.N`, while capture tests here would slow every release. The notes list HEAD's conventional commits since the upstream base that no earlier fork release listed. `fork-manifest.json` ties the assets to the commit. `release.py publish` finds the folder whose manifest names HEAD, requires HEAD on the channel's remote branch, checks the numbering again with write access, creates a draft at HEAD with `notes.md` as it stands, compares GitHub's asset names, sizes, and digests with the manifest, and publishes it, which creates the tag. Neither command regenerates the notes. A failed publish leaves the draft, and the next run names it: delete it with `gh release delete <tag> -R Stanley5249/tt-metal`, then run `release.py publish` again.
 
 Each release also carries `tt-metal-<version>-0.conda`, a `noarch` conda metapackage with the wheel's version. It ships no files: its run dependencies are the native libraries that the wheel loads from the environment, such as libhwloc, libnuma, the SFPI compiler's mpc and zstd, and a libstdc++ at least as new as GCC 13's, so a consumer pins it beside the wheel instead of listing them. `fork/conda/recipe.yaml` holds the list and repeats `feature.runtime` in `pixi.toml`; change both together. The consumer still points `TT_METAL_HOME` and `TT_METAL_RUNTIME_ROOT` at the installed `ttnn` and puts the environment's `lib/` on `LD_LIBRARY_PATH`. pixi caches a conda package by name, version, and build, so a local rebuild with the same version installs the cached one until that cache entry is removed.
 
@@ -121,10 +122,10 @@ Each release also carries `tt-metal-<version>-0.conda`, a `noarch` conda metapac
 ```text
 fork-checks    push to stable, main, fork   fork: format, typecheck, lint, script tests
                                             channels: oxfmt, check-infra, pixi lock --check
-fork-release   manual on stable or main     just release (read-only) -- just publish (contents: write)
+fork-release   manual on stable or main     release.py prepare (read-only) -- publish (contents: write)
 ```
 
-Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`; `just tools` installs them with `pixi global`, and every job installs the same list through setup-pixi's `global-environments`, in one step. Keep the lists equal.
+Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`: install them with `pixi global install just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor`. Each job installs only the tools its steps call, through setup-pixi's `global-environments`. Fork scripts carry a PEP 723 header and run with `pixi run --script`; uv is left only for building the wheel and installing it into the `wheel` environment, which pixi cannot do.
 
 fork-release's prepare job restores ccache and the CPM cache, keyed per run and restored by channel, then stable, and saves them even when the build fails. A cold build takes about 47 minutes on a runner and about 4 with a warm ccache. `TT_BUILD_JOBS=4` fits the runner's 16 GB.
 
@@ -132,20 +133,20 @@ fork-release's prepare job restores ccache and the CPM cache, keyed per run and 
 
 Sizes are from one local build. A cold `just build` takes about 32 min locally.
 
-| Path                                    | Written by                      | Size   |
-| --------------------------------------- | ------------------------------- | ------ |
-| `.pixi/envs/`                           | `just install`, `just release`  | 2.9 GB |
-| `build_Release/`, `build` linking to it | `just build`                    | 2.3 GB |
-| `runtime/`                              | `just build`                    | 0.4 GB |
-| `~/.cache/cpm/`                         | `just build`                    | 4.0 GB |
-| `~/.cache/ccache/`                      | `just build`                    | 0.6 GB |
-| `~/.cache/tt-metal-cache/`              | tests, captures, `just release` | 2 GB   |
-| `dist/<tag>/`, `build_wheel/`           | `just release`                  | 0.4 GB |
-| `build_conda/`                          | `just release`                  | 1 MB   |
+| Path                                    | Written by                            | Size   |
+| --------------------------------------- | ------------------------------------- | ------ |
+| `.pixi/envs/`                           | `just install`, `release.py prepare`  | 2.9 GB |
+| `build_Release/`, `build` linking to it | `just build`                          | 2.3 GB |
+| `runtime/`                              | `just build`                          | 0.4 GB |
+| `~/.cache/cpm/`                         | `just build`                          | 4.0 GB |
+| `~/.cache/ccache/`                      | `just build`                          | 0.6 GB |
+| `~/.cache/tt-metal-cache/`              | tests, captures, `release.py prepare` | 2 GB   |
+| `dist/<tag>/`, `build_wheel/`           | `release.py prepare`                  | 0.4 GB |
+| `build_conda/`                          | `release.py prepare`                  | 1 MB   |
 
-`just install` and `just release` also write one symlink per simulator in their environment, `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library.
+`just install` and `release.py prepare` also write one symlink per simulator in their environment, `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library.
 
-The `default` environment runs local builds and tests with editable ttnn, and `wheel` runs the packaged wheel without the editable package shadowing it. `just release` installs the wheel into `wheel`, and rewrites `dist/<tag>/` from scratch, including `notes.md`.
+The `default` environment runs local builds and tests with editable ttnn, and `wheel` runs the packaged wheel without the editable package shadowing it. `release.py prepare` installs the wheel into `wheel` and writes `dist/<tag>/` from scratch, but stops when `notes.md` is already there, so reviewed notes survive.
 
 Tracy copies captures to `build/profiler/build_wasm/traces/` and points `build/profiler/build_wasm/embed.tracy` at the current capture. Its viewer keeps running after a capture, using HTTP port 8080 and WebSocket port 8081 by default. For other viewers, inspect the `serve_wasm.py` process and use `kill <PID>`; `pkill -f serve_wasm.py` also stops viewers from other checkouts. Removing capture files does not stop the server.
 

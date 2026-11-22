@@ -1,6 +1,5 @@
 import pytest
 import release as rel
-from conftest import release
 
 HEAD = "h" * 40
 OTHER = "o" * 40
@@ -8,37 +7,26 @@ BASE = "v0.82.0"
 
 
 @pytest.mark.parametrize(
-    ("tags", "known", "expected"),
+    ("tags", "drafts", "expected"),
     [
         # The first release on a base.
-        ({}, [], rel.Plan("v0.82.0-conda.1", "build")),
-        # The next number counts tags and drafts, and ignores other bases.
-        (
-            {"v0.82.0-conda.1": OTHER, "v0.81.1-conda.9": OTHER},
-            [release("v0.82.0-conda.1"), release("v0.82.0-conda.2"), release("v0.81.1-conda.9")],
-            rel.Plan("v0.82.0-conda.3", "build"),
-        ),
-        # A draft at HEAD resumes, and a published release at HEAD needs nothing.
-        ({}, [release("v0.82.0-conda.2", draft=True, target_commitish=HEAD)], rel.Plan("v0.82.0-conda.2", "build")),
-        ({"v0.82.0-conda.2": HEAD}, [release("v0.82.0-conda.2")], rel.Plan("v0.82.0-conda.2", "published")),
-        # An unfinished release of another commit stops.
-        ({}, [release("v0.82.0-conda.1", draft=True, target_commitish=OTHER)], "publish or delete it"),
-        ({"v0.82.0-conda.1": OTHER}, [], "without a release"),
-        # HEAD released on another base, or twice.
-        ({"v0.81.1-conda.2": HEAD}, [release("v0.81.1-conda.2")], "not on v0.82.0"),
-        (
-            {"v0.82.0-conda.1": HEAD},
-            [release("v0.82.0-conda.2", draft=True, target_commitish=HEAD)],
-            "several releases",
-        ),
+        ({}, [], "v0.82.0-conda.1"),
+        # The next number follows every tag on the base, and ignores other bases.
+        ({"v0.82.0-conda.2": OTHER, "v0.81.1-conda.9": OTHER}, [], "v0.82.0-conda.3"),
+        # Drafts on other bases do not stop the release.
+        ({}, ["v0.81.1-conda.3"], "v0.82.0-conda.1"),
+        # HEAD released before, on any base, stops.
+        ({"v0.81.1-conda.2": HEAD}, [], "already released as v0.81.1-conda.2"),
+        # A draft that a failed publish left on the base stops.
+        ({"v0.82.0-conda.1": OTHER}, ["v0.82.0-conda.2"], "gh release delete v0.82.0-conda.2"),
     ],
 )
-def test_plan(tags: dict[str, str], known: list[rel.Release], expected: rel.Plan | str) -> None:
-    if isinstance(expected, str):
-        with pytest.raises(rel.ForkError, match=expected):
-            rel.plan(BASE, HEAD, tags, known)
+def test_next_tag(tags: dict[str, str], drafts: list[str], expected: str) -> None:
+    if expected.startswith("v"):
+        assert rel.next_tag(BASE, HEAD, tags, drafts) == expected
     else:
-        assert rel.plan(BASE, HEAD, tags, known) == expected
+        with pytest.raises(rel.ForkError, match=expected):
+            rel.next_tag(BASE, HEAD, tags, drafts)
 
 
 @pytest.mark.parametrize(
@@ -82,20 +70,14 @@ def test_compare_refuses_any_difference_from_the_manifest(assets: list[rel.Asset
 @pytest.mark.parametrize(
     ("tag", "expected"),
     [
-        # Drafts and the other channel's releases do not count.
+        # The other channel's releases do not count.
         ("v0.82.0-conda.2", True),
-        ("v0.83.0-dev20261121-conda.2", True),
+        ("v0.83.0-dev20261125-conda.1", True),
         # A backfilled release is not the newest.
         ("v0.81.1-conda.9", False),
         ("v0.83.0-dev20261108-conda.5", False),
     ],
 )
-def test_newest_compares_published_releases_on_one_channel(tag: str, *, expected: bool) -> None:
-    known = [
-        release("v0.82.0-conda.1"),
-        release("v0.82.0-conda.3", draft=True),
-        release("v0.83.0-dev20261121-conda.1", prerelease=True),
-        release("v0.83.0-dev20261125-conda.1", draft=True),
-        release(tag),
-    ]
-    assert rel.newest(tag, known) is expected
+def test_newest_compares_release_tags_on_one_channel(tag: str, *, expected: bool) -> None:
+    tags = ["v0.82.0-conda.1", "v0.83.0-dev20261121-conda.1"]
+    assert rel.newest(tag, tags) is expected

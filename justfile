@@ -24,17 +24,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 channel := path_exists(justfile_directory() / "pixi.toml")
 
-# Install or update the command-line tools that recipes and CI call
-[group("setup")]
-tools:
-    pixi global install just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor
-    pixi global update just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor
-
 # Install the pixi environment and link the SOC descriptors beside ttsim
 [group("setup")]
 install:
     pixi install --locked
-    uv run -q fork/scripts/sync.py link-ttsim
+    pixi run --script fork/scripts/sync.py link-ttsim
 
 # The defaults suit a 30 GB workstation; CI sets TT_BUILD_JOBS, CCACHE_MAXSIZE,
 # and the cache folders instead. Unity builds of ttnn take several GB per job.
@@ -46,7 +40,7 @@ install:
 [env("CMAKE_BUILD_PARALLEL_LEVEL", env("TT_BUILD_JOBS", "10"))]
 [group("setup")]
 build:
-    pixi run --locked -e default ./build_metal.sh --enable-ccache --without-distributed \
+    pixi run --locked ./build_metal.sh --enable-ccache --without-distributed \
         --cpm-source-cache {{ quote(env("CPM_SOURCE_CACHE", home_directory() / ".cache/cpm")) }} \
         --toolchain-path fork/cmake/x86_64-linux-clang-20-conda-toolchain.cmake
 
@@ -60,14 +54,14 @@ fmt: _fmt-ruff _fmt-oxfmt _fmt-just
 fix: fmt
     ruff check --fix fork
 
-# pyrefly reads fork/pyrefly.toml, and runs inside a uv environment that has
-# the scripts' dependencies, because it takes the interpreter from PATH.
+# pyrefly reads fork/pyrefly.toml, and runs inside a pixi exec environment that
+# has the scripts' dependencies, because it takes the interpreter from PATH.
 
 # Typecheck the fork's Python
 [group("verify")]
 [working-directory("fork")]
 typecheck:
-    uv run -q --no-project --with "pydantic>=2" --with pytest pyrefly check --summary=none
+    pixi exec -s pyrefly -s "pydantic>=2" -s pytest pyrefly check --summary=none
 
 # Lint Python and the fork workflows
 [group("verify")]
@@ -105,25 +99,14 @@ _check-lock:
     {{ if channel == "true" { "pixi lock --check" } else { "" } }}
 
 _check-infra:
-    {{ if channel == "true" { "uv run -q fork/scripts/sync.py check-infra" } else { "" } }}
+    {{ if channel == "true" { "pixi run --script fork/scripts/sync.py check-infra" } else { "" } }}
 
 # Run the script tests, and on a channel the C++ host tests; args go to pytest
 [group("verify")]
 test *args:
-    uvx --with "pydantic>=2" pytest -q fork/tests {{ quote(args) }}
+    pixi exec -s pytest -s "pydantic>=2" pytest -q fork/tests {{ quote(args) }}
 
 # Run every source-preserving gate
 [group("verify")]
 [parallel]
 ci: check test
-
-# Build, package, and smoke-test HEAD on ttsim into dist/<tag>/ with notes.md to review; writes nothing remote
-[group("release")]
-release: build
-    uv run fork/scripts/release.py prepare
-
-# Publish the release that `just release` prepared for HEAD, with its reviewed notes
-[confirm("Publish the release prepared for HEAD on GitHub? (y/n)")]
-[group("release")]
-publish:
-    uv run fork/scripts/release.py publish
