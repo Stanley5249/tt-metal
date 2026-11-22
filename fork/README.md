@@ -26,12 +26,12 @@ M upstream merge, F fork merge, s/s' fix and its cherry-pick -x, b pin commit, o
 
 Choose the integration method by the kind of change:
 
-| Change               | Method                                                             |
-| -------------------- | ------------------------------------------------------------------ |
-| fork-owned file      | commit on `fork`, then `git merge fork` on the checked-out channel |
-| upstream update      | `uv run fork/scripts/sync.py merge` on the checked-out channel     |
-| source fix, both     | commit on one channel, `git cherry-pick -x` onto the other         |
-| source fix, one only | commit on that channel, and note it in the patch table             |
+| Change               | Method                                                                    |
+| -------------------- | ------------------------------------------------------------------------- |
+| fork-owned file      | commit on `fork`, then `git merge fork` on the checked-out channel        |
+| upstream update      | `pixi run --script fork/scripts/sync.py merge` on the checked-out channel |
+| source fix, both     | commit on one channel, `git cherry-pick -x` onto the other                |
+| source fix, one only | commit on that channel, and note it in the patch table                    |
 
 Edit fork-owned files in a worktree of the `fork` branch, such as `git worktree add .agents/worktrees/fork fork`. It holds a few files and builds nothing, so it needs no pixi environment; run `just ci` there. A channel takes a fork change at its next sync, or by `git merge fork` when it needs the change sooner. Never merge a channel into `fork`, and never cherry-pick onto it.
 
@@ -86,7 +86,7 @@ Sync runs locally on the checked-out channel; it builds nothing and pushes nothi
 
 ```sh
 git switch --recurse-submodules main && git pull --ff-only
-uv run fork/scripts/sync.py merge [--tag v0.83.0-dev20261130]
+pixi run --script fork/scripts/sync.py merge -- [--tag v0.83.0-dev20261130]
 just install && just build && just ci
 git push origin main
 ```
@@ -124,7 +124,7 @@ fork-checks    push to stable, main, fork   fork: format, typecheck, lint, scrip
 fork-release   manual on stable or main     just release (read-only) -- just publish (contents: write)
 ```
 
-Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`; `just tools` installs them with `pixi global`, and every job installs the same list through setup-pixi's `global-environments`, in one step. Keep the lists equal.
+Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`: install them with `pixi global install just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor`. Each job installs only the tools its steps call, through setup-pixi's `global-environments`. Fork scripts carry a PEP 723 header and run with `pixi run --script`; uv is left only for building the wheel and installing it into the `wheel` environment, which pixi cannot do.
 
 fork-release's prepare job restores ccache and the CPM cache, keyed per run and restored by channel, then stable, and saves them even when the build fails. A cold build takes about 47 minutes on a runner and about 4 with a warm ccache. `TT_BUILD_JOBS=4` fits the runner's 16 GB.
 
