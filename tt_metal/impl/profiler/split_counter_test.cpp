@@ -1,6 +1,6 @@
 // Host test of kernel_profiler::read_split_counter, the tear-free wall clock read that every
 // profiler timestamp uses. Scripted register values put the low-half wrap at each point a
-// device read could see it. Run with `just split-counter-test`.
+// device read could see it. fork/tests/test_host.py runs it.
 
 #include <cstdint>
 #include <cstdio>

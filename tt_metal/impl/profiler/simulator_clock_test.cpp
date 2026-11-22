@@ -1,5 +1,5 @@
 // Host test of tt::tt_metal::simulator_tick_to_host_time, which places ttsim device markers on host time in Tracy.
-// Run with `just simulator-clock-test`.
+// fork/tests/test_host.py runs it.
 
 #include <cmath>
 #include <cstdint>
