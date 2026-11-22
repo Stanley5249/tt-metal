@@ -119,30 +119,26 @@ Each release also carries `tt-metal-<version>-0.conda`, a `noarch` conda metapac
 
 ## Workflows
 
-```text
-fork-checks    push to stable, main, fork   fork: format, typecheck, lint, script tests
-                                            channels: oxfmt, check-infra, pixi lock --check
-fork-release   manual on stable or main     release.py prepare (read-only) -- publish (contents: write)
-```
+`.github/workflows/fork-checks.yaml` checks pushes to the channels and `fork`; `fork-release.yaml` runs `release.py prepare` in a read-only job and `publish` in a write job, on a manual dispatch. The workflow files list each job's triggers, steps, and tools.
 
-Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`: install them with `pixi global install just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor`. Each job installs only the tools its steps call, through setup-pixi's `global-environments`. Fork scripts carry a PEP 723 header and run with `pixi run --script`; uv is left only for building the wheel and installing it into the `wheel` environment, which pixi cannot do.
+Versions follow tt-scope's [versions in CI](https://github.com/Stanley5249/tt-scope/blob/main/docs/architecture.md#versions-in-ci): workflows install the latest pixi and follow action version tags, which `.github/zizmor.yml` allows. The command-line tools that recipes call come from `PATH`: install them with `pixi global install just ruff pyrefly uv bun gh git-cliff rattler-build actionlint zizmor`. Fork scripts carry a PEP 723 header and run with `pixi run --script`; uv is left only for building the wheel and installing it into the `wheel` environment, which pixi cannot do.
 
-fork-release's prepare job restores ccache and the CPM cache, keyed per run and restored by channel, then stable, and saves them even when the build fails. A cold build takes about 47 minutes on a runner and about 4 with a warm ccache. `TT_BUILD_JOBS=4` fits the runner's 16 GB.
+fork-release's prepare job restores ccache and the CPM cache, keyed per run and restored by channel, then stable, and saves them even when the build fails. A warm ccache cuts the build from most of an hour to minutes; the workflow sets `TT_BUILD_JOBS` for the runner's memory.
 
 ## Side effects
 
-Sizes are from one local build. A cold `just build` takes about 32 min locally.
+A cold `just build` takes about half an hour locally; `du -sh` on these paths shows their sizes.
 
-| Path                                    | Written by                            | Size   |
-| --------------------------------------- | ------------------------------------- | ------ |
-| `.pixi/envs/`                           | `just install`, `release.py prepare`  | 2.9 GB |
-| `build_Release/`, `build` linking to it | `just build`                          | 2.3 GB |
-| `runtime/`                              | `just build`                          | 0.4 GB |
-| `~/.cache/cpm/`                         | `just build`                          | 4.0 GB |
-| `~/.cache/ccache/`                      | `just build`                          | 0.6 GB |
-| `~/.cache/tt-metal-cache/`              | tests, captures, `release.py prepare` | 2 GB   |
-| `dist/<tag>/`, `build_wheel/`           | `release.py prepare`                  | 0.4 GB |
-| `build_conda/`                          | `release.py prepare`                  | 1 MB   |
+| Path                                    | Written by                            |
+| --------------------------------------- | ------------------------------------- |
+| `.pixi/envs/`                           | `just install`, `release.py prepare`  |
+| `build_Release/`, `build` linking to it | `just build`                          |
+| `runtime/`                              | `just build`                          |
+| `~/.cache/cpm/`                         | `just build`                          |
+| `~/.cache/ccache/`                      | `just build`                          |
+| `~/.cache/tt-metal-cache/`              | tests, captures, `release.py prepare` |
+| `dist/<tag>/`, `build_wheel/`           | `release.py prepare`                  |
+| `build_conda/`                          | `release.py prepare`                  |
 
 `just install` and `release.py prepare` also write one symlink per simulator in their environment, `.pixi/envs/<environment>/lib/ttsim/<arch>/soc_descriptor.yaml`, which points at this tree's descriptor, because UMD reads it beside the library and real hardware reads the same files. `TTSIM_ARCH=bh` selects Blackhole; the default is Wormhole. ttsim runs here on those two architectures only: the Stanley5249/ttsim package has no Quasar library.
 
