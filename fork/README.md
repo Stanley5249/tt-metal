@@ -86,7 +86,7 @@ Sync runs locally on the checked-out channel; it builds nothing and pushes nothi
 
 ```sh
 git switch --recurse-submodules main && git pull --ff-only
-pixi run --script fork/scripts/sync.py merge -- [--tag v0.83.0-dev20261130]
+pixi run --script fork/scripts/sync.py -- merge [--tag v0.83.0-dev20261130]
 just install && just build && just ci
 git push origin main
 ```
