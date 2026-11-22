@@ -35,7 +35,6 @@ jobs:
           global-environments: |
             just
             ruff
-            pyrefly
             bun
             actionlint
             zizmor

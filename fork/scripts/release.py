@@ -325,7 +325,9 @@ def prepare() -> None:
     print(f"Prepared {tag} at {head} in {folder}:")
     for name, asset in manifest.assets.items():
         print(f"  {asset.sha256}  {name}")
-    print(f"Review and edit {folder / 'notes.md'}, push HEAD, then run fork/scripts/release.py publish")
+    print(
+        f"Review and edit {folder / 'notes.md'}, push HEAD, then run pixi run --script fork/scripts/release.py publish"
+    )
 
 
 def prepared(head: str) -> tuple[Path, Manifest]:
