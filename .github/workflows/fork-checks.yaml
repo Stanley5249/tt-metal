@@ -36,7 +36,6 @@ jobs:
             just
             ruff
             pyrefly
-            uv
             bun
             actionlint
             zizmor
@@ -46,7 +45,7 @@ jobs:
       - name: typecheck
         if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
         working-directory: fork
-        run: uv run -q --no-project --with "pydantic>=2" --with pytest pyrefly check --output-format=github --summary=none
+        run: pixi exec -s pyrefly -s "pydantic>=2" -s pytest pyrefly check --output-format=github --summary=none
       - name: lint ruff
         if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
         run: ruff check --output-format=github fork
@@ -58,7 +57,7 @@ jobs:
         run: zizmor --format=github --offline .github/workflows
       - name: test
         if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
-        run: uvx --with "pydantic>=2" pytest -q fork/tests
+        run: pixi exec -s pytest -s "pydantic>=2" pytest -q fork/tests
 
   channel:
     if: github.ref_name != 'fork'
@@ -78,7 +77,6 @@ jobs:
         with:
           run-install: false
           global-environments: |
-            uv
             bun
       # .oxfmtrc.json limits oxfmt to pixi.toml and the fork-owned files.
       - name: fmt-check oxfmt
@@ -89,4 +87,4 @@ jobs:
         run: pixi lock --check
       - name: check-infra
         if: ${{ !cancelled() && steps.pixi.outcome == 'success' }}
-        run: uv run fork/scripts/sync.py check-infra --fork origin/fork
+        run: pixi run --script fork/scripts/sync.py check-infra --fork origin/fork
